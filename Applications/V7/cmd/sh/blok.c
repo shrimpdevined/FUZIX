@@ -30,7 +30,7 @@ static uint8_t *end;		/* end of memory */
 void blokinit(void)
 {
         end = setbrk(0);	/* Find where space starts */
-        if (((uint8_t)end) & 1)
+        if (((uint8_t)(uintptr_t)end) & 1)
                 end = 1 + (uint8_t *)setbrk(1);	/* Align */
         bloktop = BLK(end);
 /*        printf("Begin: blokop %p end %p\n", (void *)bloktop, end); */

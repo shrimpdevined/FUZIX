@@ -10,7 +10,12 @@
 #include "globals.h"
 #include "picosdk.h"
 #include <hardware/irq.h>
+#include <hardware/watchdog.h>
 #include "core1.h"
+#include "devlcd.h"
+#include "devkb.h"
+#include "devtouch.h"
+
 
 struct devsw dev_tab[] =  /* The device driver switch table */
 {
@@ -27,6 +32,15 @@ struct devsw dev_tab[] =  /* The device driver switch table */
   /* 4: /dev/mem etc	System devices (one offs) */
   {  no_open,      sys_close,    sys_read, sys_write, sys_ioctl  },
   /* Pack to 7 with nxio if adding private devices and start at 8 */
+  /* 5..7: Reserved padding */
+  {  no_open,      no_close,     no_rdwr,  no_rdwr,   no_ioctl  },
+  {  no_open,      no_close,     no_rdwr,  no_rdwr,   no_ioctl  },
+  {  no_open,      no_close,     no_rdwr,  no_rdwr,   no_ioctl  },
+  /* 8: /dev/fb0 - Hosyond 3.5" ST7796S Framebuffer */
+  {  devfb_open,   devfb_close,  no_rdwr,  devfb_write, devfb_ioctl },
+  /* 9: /dev/touch - FT6336U Capacitive Touch */
+  {  devtouch_open, devtouch_close, devtouch_read, no_rdwr, no_ioctl },
+
 };
 
 static absolute_time_t now;
@@ -49,8 +63,31 @@ static void timer_tick_cb(unsigned alarm)
     absolute_time_t next;
     update_us_since_boot(&next, to_us_since_boot(now) + (1000000 / TICKSPERSEC));
 
+#ifdef CONFIG_I2C_KEYBOARD
+    devkb_poll();
+#endif
+    /* One pass now moves up to a full 512-byte staging ring into ttyinq
+     * (the old 8x loop existed for a 16-byte ring).  Keeping this bounded
+     * matters: tty_interrupt() runs with interrupts disabled, and every
+     * extra pass adds latency for the SD, USB and timer paths. */
     tty_interrupt();
+
+    /* Wake writers that slept because the USB transmit ring was full.
+     * core1 cannot call into the kernel safely, so the tick is the single
+     * place that observes the ring draining.  When no host is attached the
+     * ring will never drain: report the console as ready so writers are
+     * released instead of sleeping forever. */
+    if (usbconsole_ready(1) != TTY_READY_LATER ||
+        !usbconsole_is_available(1))
+        tty_outproc(1);
+
     timer_interrupt();
+
+    /* Feed the hardware watchdog from core0's periodic tick.  If core0 ever
+     * locks up (fault/lockup/IRQ-off spin), the tick stops and the watchdog
+     * resets the whole chip within 8 s — recovery that software panic paths
+     * cannot guarantee. */
+    watchdog_update();
 
     if (hardware_alarm_set_target(0, next))
     {
@@ -75,8 +112,8 @@ void device_init(void)
     hardware_alarm_set_callback(0, timer_tick_cb);
     hardware_alarm_force_irq(0);
 
-    /* The flash device is too small to be useful, and a corrupt flash will
-     * cause a crash on startup... oddly. */
+    /* Initialise the on-board QSPI NOR flash backing the Dhara FTL that
+     * provides the firmware root and user filesystems (hda1/hda2). */
 #ifdef CONFIG_PICO_FLASH
     flash_dev_init();
 #endif

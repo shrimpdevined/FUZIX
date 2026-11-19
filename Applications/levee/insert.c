@@ -46,7 +46,7 @@ insertion(int count, int openflag, int *dp, int *yp, bool visual)
 	}
 	if (autoindent)
 	    currDLE = findDLE(lstart, &i, skipws(lstart),0);
-	if (visual)
+	if (visual) {
 #if VT52
 	    if (OL) {
 #else
@@ -60,6 +60,7 @@ insertion(int count, int openflag, int *dp, int *yp, bool visual)
 		mvcur(1+(*yp), 0);
 		strput(CE);
 	    }
+	}
 	mvcur(-1, currDLE);
     }
     else {

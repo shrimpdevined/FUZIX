@@ -30,9 +30,13 @@ void plt_reboot(void)
 
 void plt_monitor(void)
 {
-    sleep_ms(1); // wait to print any remaining messages
-    multicore_reset_core1();
-    for(;;) { sleep_until(at_the_end_of_time); }
+    /* A panic must not permanently brick the device (that was the old
+     * infinite sleep, and it also killed core1 = the only USB console, so
+     * the failure looked like a dead hang).  Give the console time to flush
+     * the diagnostic, then watchdog-reset so a transient fault recovers. */
+    sleep_ms(1500);            /* allow panic/diagnostic text to drain */
+    watchdog_reboot(0, 0, 0);  /* clean full reset, keeps app image */
+    for (;;) { tight_loop_contents(); }
 }
 
 int plt_dev_ioctl(uarg_t request, char *data)

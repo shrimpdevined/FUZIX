@@ -403,6 +403,7 @@ static void fuzix_ls_out(char *dname)
 	prmode(statbuf.st_mode >> 6);
 	prmode(statbuf.st_mode >> 3);
 	prmode(statbuf.st_mode);
+	printf(" %06o", statbuf.st_mode & 07777);
 	printf("%4d %5d", statbuf.st_nlink, statbuf.st_ino);
 	printf("%12u ", (statbuf.st_mode & F_CDEV) ?
 	       statbuf.st_rdev : statbuf.st_size);

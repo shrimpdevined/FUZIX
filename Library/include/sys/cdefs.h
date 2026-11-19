@@ -17,3 +17,8 @@
 
 #endif
 
+
+#ifndef _BEGIN_STD_C
+#define _BEGIN_STD_C
+#define _END_STD_C
+#endif

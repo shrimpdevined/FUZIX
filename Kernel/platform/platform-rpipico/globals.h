@@ -1,7 +1,10 @@
 #ifndef GLOBALS_H
 #define GLOBALS_H
 
-#define FLASH_OFFSET (96*1024)
+/* The kernel binary is ~98 KB (~196 KB as a UF2); reserve 208 KB and give the
+ * rest of the 2 MB QSPI flash to the Dhara FTL (firmware root + user
+ * filesystem). */
+#define FLASH_OFFSET (208*1024)
 
 extern void flash_dev_init(void);
 extern void sd_rawinit(void);

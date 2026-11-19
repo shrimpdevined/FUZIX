@@ -796,6 +796,7 @@ typedef struct {
 #define HDIO_EJECT		0x0105	/* Request a media eject */
 #define HDIO_TRIM       0x0106  /* Issue a TRIM request */
 #define BLKGETSIZE      0x0107  /* Use the Linux name */
+#define HDIO_MKFS       0x0108  /* Format a FAT filesystem */
 
 /*
  *	Floppy disk ioctl s0x01Fx (see fdc.h)
@@ -1029,6 +1030,7 @@ extern void wr_inode(inoptr ino);
 extern bool isdevice(inoptr ino);
 extern int f_trunc_blocks(inoptr ino, uint16_t nblock);
 extern int f_trunc(inoptr ino);
+extern int f_trunc_to(inoptr ino, off_t n);
 extern void freeblk(uint16_t dev, blkno_t blk, uint_fast8_t level, uint16_t nblock);
 extern blkno_t bmap(inoptr ip, blkno_t bn, unsigned int rwflg);
 extern void validblk(uint16_t dev, blkno_t num);

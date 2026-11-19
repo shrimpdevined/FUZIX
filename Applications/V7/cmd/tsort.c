@@ -198,4 +198,5 @@ int main(int argc, const char *argv[])
 		printf("%s\n", i->name);
 		i->live = DEAD;
 	}
+	return 0;
 }

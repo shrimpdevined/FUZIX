@@ -1,0 +1,2 @@
+root:x:0:0:root:/root:/bin/sh
+devops:x:1000:1000:Developer:/home/devops:/bin/sh

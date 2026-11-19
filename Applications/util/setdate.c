@@ -226,7 +226,7 @@ int rtcwrite(void)
 
 void usage(void)
 {
-    fprintf(stderr, "Usage: setdate [-a] [-u] [-w] [-0]\n");
+    fprintf(stderr, "Usage: setdate [-a] [-u] [-w] [-0] [-y]\n");
     exit(1);
 }
 
@@ -241,9 +241,9 @@ int main(int argc, char *argv[])
     int y,m,d,h,s;
     register int set = 0;
     int opt;
-    int user = 0, autom = 0, wr = 0;
+    int user = 0, autom = 0, wr = 0, y2k = 0;
 
-    while ((opt = getopt(argc, argv, "auw0")) != -1) {
+    while ((opt = getopt(argc, argv, "auw0y")) != -1) {
         switch(opt) {
         case 'a':
             autom = 1;
@@ -257,12 +257,37 @@ int main(int argc, char *argv[])
         case '0':
             utc = 1;
             break;
+        case 'y':
+            y2k = 1;
+            break;
         default:
             usage();
         }
     }
     if (optind != argc)
         usage();
+
+    /*
+     * A board without a battery-backed RTC has no meaningful wall clock
+     * at boot.  Start from a fixed epoch (2000-01-01 00:00:00 UTC) and
+     * let the kernel tick carry it forward, rather than interrogating
+     * the operator on every boot.
+     */
+    if (y2k) {
+        struct tm epoch_tm = { 0 };
+        time_t epoch;
+
+        epoch_tm.tm_year = 100;		/* 2000 */
+        epoch_tm.tm_mon = 0;		/* January */
+        epoch_tm.tm_mday = 1;
+        epoch_tm.tm_isdst = 0;
+        epoch = mkgmtime(&epoch_tm);
+        if (epoch == (time_t) -1 || stime(&epoch) == -1) {
+            perror("stime");
+            return 2;
+        }
+        return 0;
+    }
 
     if (wr) {
        if (rtcwrite())

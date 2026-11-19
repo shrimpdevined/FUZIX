@@ -180,7 +180,7 @@ findCP(int curp, int *newpos, cmdtype cmd)
 
 /* this procedure handles all movement in visual mode */
 
-PROC
+void PROC
 movearound(cmdtype cmd)
 {
     int cp;

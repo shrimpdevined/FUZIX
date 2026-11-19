@@ -153,7 +153,7 @@ char *ralloc(char *p, size_t n)
 void sort(struct line *a, int n)
 {				/*shellsort CACM #201 */
 	struct line w;
-	register int j, m;
+	register int j, m = 0;
 	struct line *ai;
 	register struct line *aim;
 	int k;
@@ -642,4 +642,5 @@ int main(int argc,  char *argv[])
 	output(argv);
 	status = anychange;
 	done();
+	return (status);
 }

@@ -291,7 +291,7 @@ static uint8_t page_find(uint8_t ah)
 
 static uint8_t getb(uint8_t *p)
 {
-	uint16_t addr = (uint16_t)p;
+	uint16_t addr = (uint16_t)(uintptr_t)p;
 	uint8_t ah = addr >> 8;
 	uint8_t c;
 
@@ -709,13 +709,15 @@ static void execute(void)
       case 16:
         /* These two are defined despite gcc whining. It doesn't matter
            which way around they get evaluated */
-        if (variables[getb(pc++)] == variables[getb(pc++)])
+        tmp = getb(pc++);
+        if (variables[tmp] == variables[getb(pc++)])
           pc = address();
         else
           skipaddress();
         break;
       case 17:
-        if (variables[getb(pc++)] != variables[getb(pc++)])
+        tmp = getb(pc++);
+        if (variables[tmp] != variables[getb(pc++)])
           pc = address();
         else
           skipaddress();
@@ -832,4 +834,5 @@ int main(int argc, char *argv[])
 #ifdef STATISTICS
   printf("Fast %d Slow %d Miss %d\n", fast, slow, miss);
 #endif
+  return 0;
 }

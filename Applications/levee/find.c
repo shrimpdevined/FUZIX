@@ -128,7 +128,7 @@ amatch(char *pattern, char *start, char *endp)
 
 /*  increment pattern by the size of the token being scanned
  */
-PROC
+void PROC
 patsize(char **pattern)
 {
     register int count;
@@ -148,7 +148,7 @@ patsize(char **pattern)
     }
 }
 
-PROC
+int PROC
 locate(char *pattern, char *linep)
 /* locate: find a character in a closure */
 {
@@ -164,7 +164,7 @@ locate(char *pattern, char *linep)
 }
 char *p;
 
-PROC
+void PROC
 concatch(char c)
 {
     if (p < &pattern[MAXPAT-1])
@@ -201,7 +201,7 @@ dodash(char *src)
 	    src++;
 	}
 	else
-	    cs[esc(&src)] = TRUE;
+	    cs[(unsigned char)esc(&src)] = TRUE;
 	src++;
     }
     for (k=0; k < sizeof(cs); k++)
@@ -236,8 +236,8 @@ char badclose[] = { LSTART, LEND, CLOSURE, 0 };
 char * PROC makepat(char *string, char delim)
 /* make up the pattern string for find	-- ripped from 'Software Tools' */
 {
-    register char *cp;
-    register char *oldcp;
+    register char *cp = NULL;
+    register char *oldcp = NULL;
     char *start = string;
     int inarg = FALSE;
 
@@ -305,7 +305,7 @@ char * PROC makepat(char *string, char delim)
     return (*string == delim)?(string+1):(string);
 }
 
-PROC
+int PROC
 findfwd(char *pattern, int start, int endp)
 /* look for a regular expression forward */
 {
@@ -319,7 +319,7 @@ findfwd(char *pattern, int start, int endp)
      return ERR;
  }
 
-PROC
+int PROC
 findback(char *pattern, int start, int endp)
 /* look for a regular expression backwards */
 {

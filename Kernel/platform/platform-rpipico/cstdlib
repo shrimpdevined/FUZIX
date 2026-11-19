@@ -1,0 +1,2 @@
+#include <stdlib.h>
+namespace std { using ::size_t; using ::malloc; using ::free; using ::abort; }

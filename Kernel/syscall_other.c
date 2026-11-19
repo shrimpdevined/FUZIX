@@ -1,3 +1,4 @@
+#include "platform/platform-rpipico/devfat.h"
 #include <kernel.h>
 #include <version.h>
 #include <kdata.h>
@@ -46,8 +47,13 @@ arg_t _rename(void)
 
 	dsti = n_open(dst, &dstp);
 	/* lastname now holds destination name element */
-	/* Same file - do nothing */
+	/* Same file - do nothing.  n_open() returned references to both dsti
+	 * and dstp that nogood3 does not drop, so release them here to avoid
+	 * leaking two c_refs on every self-rename (uint8_t wrap -> "inode freed"). */
 	if (dsti == srci) {
+		i_deref(dsti);
+		if (dstp != NULLINODE)
+			i_deref(dstp);
 		ret = 0;
 		goto nogood3;
 	}
@@ -80,6 +86,18 @@ arg_t _rename(void)
 	if (!(getperm(srcp) & OTH_WR) && esuper()) {
 		udata.u_error = EACCES;
 		goto nogood;
+	}
+	/* FAT renames are performed by FatFs.  devfat_rename() handles an
+	 * existing destination itself (FatFs reports FR_EXIST rather than
+	 * overwriting), so do not unlink it through the generic path. */
+	if (fs_tab[srcp->c_super].m_flags & 0x80) {
+		if (dsti) {
+			i_deref(dsti);
+			dsti = NULLINODE;
+		}
+		ret = devfat_rename(srcp, (const char *)fname, dstp,
+				    (const char *)lastname);
+		goto nogood2;
 	}
 	/* Destination exists ? If so we must remove it if possible */
 	if (dsti) {
@@ -158,6 +176,17 @@ arg_t _mkdir(void)
 	if (parent->c_node.i_nlink == 0xFFFF) {
 		udata.u_error = EMLINK;
 		goto nogood2;
+	}
+
+	/* FAT directories are created through FatFs; the generic '.'/'..'
+	 * ch_link() path would corrupt the FAT directory. */
+	if (fs_tab[parent->c_super].m_flags & 0x80) {
+		ino = devfat_mkdir(parent, (const char *)lastname);
+		i_deref(parent);
+		if (!ino)
+			return -1;
+		i_deref(ino);
+		return 0;
 	}
 
 
@@ -258,6 +287,23 @@ arg_t _rmdir(void)
 	/* Parent must be writable */
 	if (!(getperm(parent) & OTH_WR))
 		goto nogood;
+
+	/* FAT directory entries are removed through FatFs. */
+	if (fs_tab[parent->c_super].m_flags & 0x80) {
+		if (devfat_rmdir(ino) != 0)
+			goto nogood;
+		ino->c_node.i_nlink = 0;
+		if (!(parent->c_node.i_nlink--)) {
+			parent->c_node.i_nlink += 2;
+			kputs("_rmdir: bad nlink\n");
+		}
+		setftime(ino, C_TIME);
+		wr_inode(parent);
+		wr_inode(ino);
+		i_unlock_deref(parent);
+		i_unlock_deref(ino);
+		return (0);
+	}
 
 	/* Remove the directory entry */
 	if (!ch_link(parent, lastname, (uint8_t *)"", NULLINODE))
@@ -434,6 +480,7 @@ static int do_umount(uint16_t dev)
 		return 0;
 	}
 
+	if (mnt->m_flags & 0x80) devfat_unmount();
 	i_deref(mnt->m_mntpt);
 	/* Vanish the entry */
 	mnt->m_dev = NO_DEVICE;
@@ -531,6 +578,18 @@ arg_t _uadmin(void)
 {
 	if (esuper())
 		return -1;
+	/* Mark all mounted r/w native filesystems clean BEFORE sync(), so the
+	 * clean state is written to disk.  fmount() sets s_fmod=FMOD_DIRTY for
+	 * every r/w mount; without this transition a clean reboot re-commits
+	 * DIRTY and the next boot warns "mounting dirty file system" and forces
+	 * r/o.  FAT volumes (m_flags & 0x80) have no Fuzix superblock to mark. */
+	{
+		struct mount *m;
+		for (m = fs_tab; m < fs_tab + NMOUNTS; ++m)
+			if (m->m_dev != NO_DEVICE && !(m->m_flags & 0x80) &&
+			    !(m->m_flags & MS_RDONLY))
+				m->m_fs.s_fmod = FMOD_GO_CLEAN;
+	}
 	if (func != AD_NOSYNC)
 		sync();
 	/* Wants moving into machine specific files */

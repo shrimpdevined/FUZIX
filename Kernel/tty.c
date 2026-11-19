@@ -4,6 +4,9 @@
 #include <stdbool.h>
 #include <tty.h>
 
+/* Weak no-op; platforms with device-side input buffers override this. */
+void __attribute__((weak)) tty_flushinput(uint_fast8_t minor) { (void)minor; }
+
 /*
  *	Minimal Terminal Interface
  *
@@ -314,6 +317,10 @@ int tty_ioctl(uint_fast8_t minor, uarg_t request, char *data)
 		return uput(&ttyinq[minor].q_count, data, 2);
 	case TIOCFLUSH:
 		clrq(&ttyinq[minor]);
+		/* Also drain any device-side staging ring (eg USB CDC on RP2040),
+		 * otherwise bytes still there are delivered to the next prompt. */
+		if (tty_flushinput)
+			tty_flushinput(minor);
                 tty_selwake(minor, SELECT_OUT);
 		break;
         case TIOCHANGUP:

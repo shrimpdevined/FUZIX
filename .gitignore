@@ -23,3 +23,16 @@ size.report
 *.elf
 bin
 *.debug
+# Platform build artifacts and generated images
+*.orig
+combined.bin
+*.uf2
+*.img
+*.ftl
+*.bin
+# Staged SD card contents (generated binaries)
+Kernel/platform/platform-rpipico/sdcard/
+# Compiler scratch
+*.i
+__pycache__/
+*.pyc

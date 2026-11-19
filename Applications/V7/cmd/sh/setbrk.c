@@ -19,7 +19,7 @@ void *setbrk(intptr_t incr)
 		write(2, "Out of memory.\n", 15);
 		_exit(255);
 	}
-	brkend = a + incr;
+	brkend = (char *)(a + incr);
 	if (a != (uint8_t *)-1 && incr > 0)
 		memset(a, 0, incr);
 	return a;

@@ -13,7 +13,7 @@
 #include	"defs.h"
 #include 	<dirent.h>
 #include	<sys/types.h>
-#define DIRSIZ 31
+#define DIRSIZ 30
 #include	<sys/stat.h>
 
 /* We can't detect Fuzix yet --- this will do for now. */

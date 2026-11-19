@@ -27,15 +27,17 @@
  */
 
 #include "tusb.h"
+#include "pico/usb_reset.h"
 
 #define USBD_VID (0x2E8A) // Raspberry Pi
 #define USBD_PID (0x000a) // Raspberry Pi Pico SDK CDC
 
-#define USBD_DESC_LEN (TUD_CONFIG_DESC_LEN + CFG_TUD_CDC * TUD_CDC_DESC_LEN)
+#define USBD_DESC_LEN (TUD_CONFIG_DESC_LEN + CFG_TUD_CDC * TUD_CDC_DESC_LEN + TUD_RPI_RESET_DESC_LEN)
 #define USBD_MAX_POWER_MA (250)
 
 #define USBD_ITF_CDC (0) // needs 2 interfaces
-#define USBD_ITF_MAX (CFG_TUD_CDC*2+1)
+#define USBD_ITF_RESET (CFG_TUD_CDC*2) // vendor interface for picotool reset
+#define USBD_ITF_MAX (CFG_TUD_CDC*2+2)
 
 #define USBD_CDC_EP_CMD (0x81)
 #define USBD_CDC_EP_OUT (0x02)
@@ -48,6 +50,7 @@
 #define USBD_STR_PRODUCT (0x02)
 #define USBD_STR_SERIAL (0x03)
 #define USBD_STR_CDC (0x04)
+#define USBD_STR_RPI_RESET (0x05)
 
 // Note: descriptors returned from callbacks must exist long enough for transfer to complete
 #if CFG_TUD_CDC > 0
@@ -89,6 +92,8 @@ static const uint8_t usbd_desc_cfg[USBD_DESC_LEN] = {
     TUD_CDC_DESCRIPTOR(USBD_ITF_CDC+6, USBD_STR_CDC, USBD_CDC_EP_CMD+6,
         USBD_CDC_CMD_MAX_SIZE, USBD_CDC_EP_OUT+6, USBD_CDC_EP_IN+6, USBD_CDC_IN_OUT_MAX_SIZE),
 #endif
+
+    TUD_RPI_RESET_DESCRIPTOR(USBD_ITF_RESET, USBD_STR_RPI_RESET),
 };
 
 #if CFG_TUD_CDC > 4
@@ -100,6 +105,7 @@ static const char *const usbd_desc_str[] = {
     [USBD_STR_PRODUCT] = "Pico Fuzix",
     [USBD_STR_SERIAL] = "000000000000", // TODO
     [USBD_STR_CDC] = "Board CDC",
+    [USBD_STR_RPI_RESET] = "Reset",
 };
 
 const uint8_t *tud_descriptor_device_cb(void) {

@@ -34,7 +34,7 @@ static int split(const char *s);
 void initio(IOPTR iop)
 {
 	register char *ion;
-	register int iof, fd;
+	register int iof, fd = 0;
 
 	if (iop) {
 		iof = iop->iofile;
@@ -85,6 +85,7 @@ const char *getpath(const char *s)
 	} else {
 		return (cpystak(path));
 	}
+	return (nullstr);	/* failed() is non-returning; keep -Wreturn-type quiet */
 }
 
 int pathopen(const char *path, const char *name)
@@ -177,6 +178,7 @@ static const char *execs(const char *ap, const char *t[])
 	case ENOENT:
 		return (prefix);
 	}
+	return 0;
 }
 
 /* for processes to be waited for */

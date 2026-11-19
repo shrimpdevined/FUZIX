@@ -1313,6 +1313,7 @@ int zz(void)
 		return save_done(filename, 1);
 	else
 		warning("no filename");
+	return 0;
 }
 
 int noop(void)

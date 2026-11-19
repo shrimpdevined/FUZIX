@@ -354,7 +354,7 @@ void ibm(int cc)
 int main(int argc, char *argv[])
 {
 	void (*conv)(int);
-	register char *ip;
+	register char *ip = NULL;
 	register int c;
 	int a;
 

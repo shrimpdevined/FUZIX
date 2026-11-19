@@ -28,7 +28,7 @@
 
 int wilderr, wildcard;
 
-PROC
+int PROC
 expandargs(char *name, int *argcp, char ***argvp)
 {
 #if RMX|UNIX
@@ -56,7 +56,7 @@ expandargs(char *name, int *argcp, char ***argvp)
 
 #define QUANTUM	10
 
-PROC
+int PROC
 doaddwork(char *token,int *argcp, char ***argvp)
 {
     char **ap = *argvp;
@@ -71,7 +71,7 @@ doaddwork(char *token,int *argcp, char ***argvp)
 	    goto memfail;
 	}
     }
-    if (ap[ac] = strdup(token)) {
+    if ((ap[ac] = strdup(token))) {
 #if ST|RMX|FLEXOS
 	strlwr(ap[ac]);		/* monocase filesystem */
 #endif
@@ -83,7 +83,7 @@ memfail:
     return -1;
 }
 
-PROC
+void PROC
 killargs(int *argcp, char ***argvp)
 {
     int i;

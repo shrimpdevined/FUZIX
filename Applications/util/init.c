@@ -22,6 +22,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <pwd.h>
+#include <shadow.h>
 #include <utmp.h>
 #include <grp.h>
 #include <errno.h>
@@ -170,7 +171,15 @@ static pid_t spawn_process(uint8_t * p, uint8_t wait)
 	endutent();
 	/* Let it complete if that is the instruction */
 	if (wait) {
-		while (waitpid(pid, NULL, 0) != pid);
+		{
+			int r;
+			/* Retry only on a transient EINTR.  Stop on success
+			 * (r == pid) or on any real error (ECHILD, EINVAL,
+			 * ...) so a persistent failure cannot spin forever. */
+			do {
+				r = waitpid(pid, NULL, 0);
+			} while (r < 0 && errno == EINTR);
+		}
 		return 0;
 	}
 	else
@@ -375,9 +384,9 @@ static void parse_inittab(void)
 		parse_initline();
 
 	/* Align the pid table - eww */
-	if (((uint8_t)idata) & 1)
+	if (((uintptr_t)idata) & 1)
 		idata++;
-	if (((uint8_t)idata) & 2)
+	if (((uintptr_t)idata) & 2)
 		idata += 2;
 
 	/* Allocate space for the control arrays */
@@ -735,18 +744,36 @@ static struct winsize winsz = {
 	25, 80
 };
 
+/*
+ *	A hash of an unrelated string.  Checking it when the requested
+ *	login name does not exist makes the failure path take the same
+ *	time as a real password check.
+ */
+static const char login_dummy_hash[] =
+	"$pbkdf2-sha256$10000$AAAAAAAAAAAAAAAAAAAAA.$"
+	".md2rmn3/lnINj/NVbdKZ6mIXTUKcbHZqOUF0g7Z98o";
+
+static int login_locked(const char *hash)
+{
+	if (hash == NULL)
+		return 1;
+	return hash[0] == '*' || hash[0] == '!';
+}
+
 
 static pid_t getty(const char **argv, const char *id)
 {
 	int fdtty, pid;
 	struct passwd *pwd;
-	const char *pr;
 	const char *issue = "/etc/issue";
 	const char *host = "";
-	char *p, buf[50], salt[3];
+	char *p, buf[50];
 	char hn[64];
 	uint8_t console = 0;
 	uint16_t vtsize;
+#ifndef AUTOLOGIN
+	unsigned int read_errors = 0;
+#endif
 
 	gethostname(hn, sizeof(hn));
 
@@ -811,7 +838,11 @@ static pid_t getty(const char **argv, const char *id)
 				putstr("getty: can not reset owner of tty\n");
 
 			/* here we are inside child's context of execution */
-			envset("PATH", "/bin:/usr/bin");
+			/* The SD application store is optional: the kernel
+			 * skips missing PATH entries, so standalone boot is
+			 * unaffected when no card is present. */
+			envset("PATH",
+			       "/bin:/usr/bin:/mnt/sd/fuzix/bin:/mnt/sd/fuzix/games");
 			envset("CTTY", argv[0]);
 
 			/* retrieve default size from VT if available */
@@ -854,13 +885,39 @@ static pid_t getty(const char **argv, const char *id)
 			pututline(&ut);
 			endutent();
 
+#ifndef AUTOLOGIN
+			/* Runtime autologin.  /etc/autologin names the account
+			 * to start directly in a shell; sudo still asks for
+			 * the account password.  A bad or missing file simply
+			 * falls through to the normal login prompt. */
+			{
+				int afd = open("/etc/autologin", O_RDONLY);
+
+				if (afd >= 0) {
+					char abuf[32];
+					int n = read(afd, abuf, sizeof(abuf) - 1);
+
+					close(afd);
+					if (n > 0) {
+						char *nl;
+						abuf[n] = '\0';
+						nl = strchr(abuf, '\n');
+						if (nl != NULL)
+							*nl = '\0';
+						if (*abuf != '\0') {
+							pwd = getpwnam(abuf);
+							if (pwd != NULL)
+								spawn_login(pwd, argv[0],
+									    id, host, console);
+						}
+					}
+				}
+			}
+#endif
+
 			/* display the /etc/issue file, if exists */
 			if (issue)
 				showfile(issue);
-			if (*hn) {
-				putstr(hn);
-				putstr(" ");
-			}
 			/* loop until a valid user name is entered
 			 * and a shell is spawned */
 
@@ -868,8 +925,32 @@ static pid_t getty(const char **argv, const char *id)
 #if AUTOLOGIN
 				pwd = getpwnam("root");
 #else
+				/* Repeat the full prompt on every retry, as a
+				 * conventional login does. */
+				if (*hn) {
+					putstr(hn);
+					putstr(" ");
+				}
 				putstr("login: ");
-				while (read(0, buf, 20) < 0);	/* EINTR might happens because of the alarm() call below */
+				{
+					int n;
+					do {
+						memset(buf, 0, sizeof(buf));
+						n = read(0, buf, sizeof(buf) - 1);
+					} while (n < 0 && errno == EINTR);
+					if (n < 0) {
+						/* A hard error (e.g. EIO on a hung-up
+						 * tty) must not hot-loop re-printing
+						 * "login:".  Back off, and if it
+						 * persists exit so init respawns a
+						 * fresh getty on the line. */
+						if (++read_errors >= 3)
+							_exit(1);
+						sleep(1);
+						continue;
+					}
+					read_errors = 0;
+				}	/* EINTR might happen because of the alarm() below */
 
 				if ((p = strchr(buf, '\n')) != NULL)
 					*p = '\0';	/* strip newline */
@@ -880,21 +961,37 @@ static pid_t getty(const char **argv, const char *id)
 				pwd = getpwnam(buf);
 #endif
 
-				if (pwd == NULL || *pwd->pw_passwd)
-					p = getpass("Password: ");
-				if (pwd) {
-					if (*pwd->pw_passwd) {
-						salt[0] = pwd->pw_passwd[0];
-						salt[1] = pwd->pw_passwd[1];
-						salt[2] = '\0';
-						pr = crypt(p, salt);
-					} else {
-						pr = "";
+				{
+					struct spwd *sp;
+					const char *hash;
+
+					hash = login_dummy_hash;
+					if (pwd != NULL) {
+						sp = getspnam(pwd->pw_name);
+						if (sp != NULL && sp->sp_pwdp != NULL)
+							hash = sp->sp_pwdp;
+						else
+							hash = pwd->pw_passwd;
 					}
-					if (strcmp(pr, pwd->pw_passwd) == 0)
-						spawn_login(pwd, argv[0], id, host, console);
-				} else /* So you can't tell by the delay time */
-					crypt(p, "ZZ");
+
+					if (pwd != NULL && hash != NULL &&
+					    hash[0] == '\0') {
+						spawn_login(pwd, argv[0], id,
+							    host, console);
+					} else {
+						p = getpass("Password: ");
+						if (p != NULL && pwd != NULL &&
+						    hash != NULL &&
+						    !login_locked(hash) &&
+						    crypt_check(p, hash))
+							spawn_login(pwd, argv[0],
+								    id, host,
+								    console);
+						else if (pwd == NULL && p != NULL)
+							crypt_check(p,
+								    login_dummy_hash);
+					}
+				}
 
 				putstr("\nLogin incorrect\n\n");
 				signal(SIGALRM, sigalarm);

@@ -1163,7 +1163,7 @@ static void savegame(void)
 		header[l] = 0;
 
 	/* FIXME: remove stdio */
-	savefd = open(header,  O_WRONLY|O_CREAT|O_TRUNC, 0600);
+	savefd = open((char *)header,  O_WRONLY|O_CREAT|O_TRUNC, 0600);
 	if (savefd == -1) {
 		/* FIXME - via game output.. */
 		errstr("Could not create", (char *)header);
@@ -1211,7 +1211,7 @@ static void loadgame(void)
 	if ((header[l] == '\r') || (header[l] == '\n'))
 		header[l] = 0;
 
-	loadfd = open(header, O_RDONLY);
+	loadfd = open((char *)header, O_RDONLY);
 	if (loadfd == -1) {
 		opstr32("Could not open ");
 		opstr32((char *)header);
@@ -1688,7 +1688,6 @@ static struct fontinfo fs;
 
 static unsigned load_tile(unsigned n)
 {
-	unsigned r = 4;	/* Rows per block */
 	uchr ch[17];
 	uchr *p;
 	uchr i, h, l;
@@ -1713,7 +1712,6 @@ static unsigned load_tile(unsigned n)
 		l |= (n & 8) ? 0x38 : 0x00;
 		break;
 	case FONT_INFO_4X6:
-		r = 3;
 		/* Fall through */
 	case FONT_INFO_4X8:
 		h = (n & 1) ? 0x33: 0x00;
@@ -1738,7 +1736,6 @@ static unsigned load_tile(unsigned n)
 
 static unsigned load_user(unsigned n)
 {
-	unsigned r = 4;	/* Rows per block */
 	uchr ch[17];
 	uchr *p = ch;
 	uchr i, tmp;
@@ -1783,7 +1780,6 @@ static unsigned load_user(unsigned n)
 
 static unsigned load_udg(void)
 {
-	unsigned i = fs.udg_low;
 	unsigned n;
 
 	if (fs.udg_high - fs.udg_low < 16)
@@ -1844,7 +1840,7 @@ static void clrscr(void)
 	/* TODO termcap */
 }
 
-static void setcolour(void)
+static void __attribute__((unused)) setcolour(void)
 {
 	uint8_t ncol;
 	if (inverse)

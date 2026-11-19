@@ -9,8 +9,10 @@ udata = progbase
 .thumb_func
 .global plt_idle
 plt_idle:
+    push {r4, lr}           @ keep the stack 8-byte aligned for the call
+    bl plt_idle_hook        @ deferred console/LCD work (interrupts enabled)
     wfi
-    bx lr
+    pop {r4, pc}
 
 .text
 .thumb_func
@@ -112,6 +114,7 @@ plt_switchout:
 	/* Fall through into switchin */
 
     /* On entry, r0 is the ptab ptr of the process to run */
+.thumb_func
 switchin:
     ldr r1, =__StackTop     /* switch to swapper stack */
     mov sp, r1
@@ -148,6 +151,7 @@ switchin:
 .text
 .thumb_func
 # r0 = ptab of the new child process
+.thumb_func
 dofork:
 	/* Save the callee-saved registers onto the stack in the same order
 	 * that switchout will do it, so switchin will restore it correctly. */

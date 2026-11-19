@@ -312,7 +312,7 @@ void new_field(FIELD * field, int *offset, BOOL beg_fl)
   else
 	field->end_field = atoi(ptr);
 
-  while (table[*ptr] & DIGIT)	/* Skip all digits */
+  while (table[(unsigned char)*ptr] & DIGIT)	/* Skip all digits */
 	ptr++;
 
   if (*ptr == '.') {		/* Check for offset */
@@ -321,7 +321,7 @@ void new_field(FIELD * field, int *offset, BOOL beg_fl)
 		field->beg_pos = atoi(ptr);
 	else
 		field->end_pos = atoi(ptr);
-	while (table[*ptr] & DIGIT)	/* Skip digits */
+	while (table[(unsigned char)*ptr] & DIGIT)	/* Skip digits */
 		ptr++;
   }
   if (beg_fl) {
@@ -330,7 +330,7 @@ void new_field(FIELD * field, int *offset, BOOL beg_fl)
   }
   if (beg_fl) {			/* Check for end pos */
 	ptr = argptr[*offset];
-	if (ptr && *ptr == '-' && ((table[*(ptr + 1)] & DIGIT) || *(ptr + 1) == '.')) {
+	if (ptr && *ptr == '-' && ((table[(unsigned char)*(ptr + 1)] & DIGIT) || *(ptr + 1) == '.')) {
 		new_field(field, offset, FALSE);
 		if (field->beg_field > field->end_field)
 			error(TRUE, "End field is before start field!", NIL_PTR);
@@ -739,7 +739,7 @@ char *skip_fields(char *str, int nf)
   while (nf-- > 0) {
 	if (separator == '\0') {/* Means ' ' or '\t' */
 		while (*str != ' ' && *str != '\t' && *str != '\n') str++;
-		while (table[*str] & BLANK) str++;
+		while (table[(unsigned char)*str] & BLANK) str++;
 	} else {
 		while (*str != separator && *str != '\n') str++;
 		if (*str == separator) str++;
@@ -853,7 +853,7 @@ int digits(char *str1, char *str2, BOOL check_sign)
   }
 
 /* Keep incrementing as long as digits are available and equal */
-  while ((table[*str1] & DIGIT) && table[*str2] & DIGIT) {
+  while ((table[(unsigned char)*str1] & DIGIT) && table[(unsigned char)*str2] & DIGIT) {
 	if (*str1 != *str2) break;
 	str1++;
 	str2++;
@@ -865,24 +865,24 @@ int digits(char *str1, char *str2, BOOL check_sign)
 		if (*str2 == '.')	/* Both. Check decimal part */
 			ret = digits(str1 + 1, str2 + 1, FALSE);
 		else
-			ret = (table[*str2] & DIGIT) ? LOWER : HIGHER;
+			ret = (table[(unsigned char)*str2] & DIGIT) ? LOWER : HIGHER;
 	} else
-		ret = (table[*str1] & DIGIT) ? HIGHER : LOWER;
+		ret = (table[(unsigned char)*str1] & DIGIT) ? HIGHER : LOWER;
   }
 
 /* Now either two digits differ, or unknown char is seen (e.g. end of string) */
-  else if ((table[*str1] & DIGIT) && (table[*str2] & DIGIT)) {
+  else if ((table[(unsigned char)*str1] & DIGIT) && (table[(unsigned char)*str2] & DIGIT)) {
 	diff = *str1 - *str2;	/* Basic difference */
 	pow = 0;		/* Check power of numbers */
-	while (table[*str1++] & DIGIT) pow++;
-	while (table[*str2++] & DIGIT) pow--;
+	while (table[(unsigned char)*str1++] & DIGIT) pow++;
+	while (table[(unsigned char)*str2++] & DIGIT) pow--;
 	ret = (pow == 0) ? diff : pow;
   }
 
 /* Unknown char. Check on which string it occurred */
   else {
-	if ((table[*str1] & DIGIT) == 0)
-		ret = (table[*str2] & DIGIT) ? LOWER : SAME;
+	if ((table[(unsigned char)*str1] & DIGIT) == 0)
+		ret = (table[(unsigned char)*str2] & DIGIT) ? LOWER : SAME;
 	else
 		ret = HIGHER;
   }
@@ -923,7 +923,7 @@ void files_merge(int file_cnt) /* Nr_of_files to merge */
 /* Merge () merges the files between start_file and limit_file. */
 void merge(int start_file, int limit_file)
 {
-  register MERGE *smallest;	/* Keeps track of smallest line */
+  register MERGE *smallest = NULL;	/* Keeps track of smallest line */
   register int i;
   int file_cnt = limit_file - start_file;	/* Nr of files to merge */
 

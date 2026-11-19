@@ -340,7 +340,7 @@ void print(char *fp, char **argp)
 	colp[ncol] = bufp = buffer;
 	if (mflg==0)
 		nexbuf();
-	while (mflg&&nofile || (!mflg)&&tpgetc(ncol)>0) {
+	while ((mflg&&nofile) || ((!mflg)&&tpgetc(ncol)>0)) {
 		if (mflg==0) {
 			colp[ncol]--;
 			if (colp[ncol] < buffer)
@@ -422,4 +422,5 @@ int main(int argc, char *argv[])
 	if (nfdone==0)
 		print((char *)0, (char **)0);
 	done();
+	return 0;
 }

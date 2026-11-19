@@ -112,6 +112,7 @@ static int display_one_gpio(int i, int fd)
 		printf(" (unknown %u)", gpio.info.flags);
 	}
 	putchar('\n');
+	return 0;
 }
 
 static int display_all_gpio(int fd)
@@ -185,7 +186,6 @@ int main(int argc, char **argv)
 {
 	int fd;
 	uint_fast8_t pin;
-	uint_fast8_t value;
 
 	fd = open("/dev/gpio", O_RDWR, 0);
 	if (!fd) {

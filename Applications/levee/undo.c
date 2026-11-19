@@ -68,7 +68,7 @@ pushmem(struct undostack *u, int start, int size)
     return ok;
 }
 
-PROC
+void PROC
 zerostack(struct undostack *u)
 {
     if (u->blockp > 0)
@@ -83,7 +83,7 @@ uputcmd(struct undostack *u, int size, int start, char cmd)
     return(pushw(u, size) && pushw(u, start) && pushw(u, cmd));
 }
 
-PROC
+void PROC
 insert_to_undo(struct undostack *u, int start, int size)
 {
     if (uputcmd(u, size, start, U_DELC)) {

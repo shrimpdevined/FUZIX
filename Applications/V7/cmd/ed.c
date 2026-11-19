@@ -191,6 +191,7 @@ int main(int argc, char *argv[])
 	setjmp(savej);
 	commands();
 	quit(0);
+	return 0;
 }
 
 void commands(void)
@@ -1374,8 +1375,8 @@ int execute(int gf, int *addr)
 	register char *p1, *p2, c;
 
 	for (c=0; c<NBRA; c++) {
-		braslist[c] = 0;
-		braelist[c] = 0;
+		braslist[(unsigned char)c] = 0;
+		braelist[(unsigned char)c] = 0;
 	}
 	if (gf) {
 		if (circfl)
@@ -1460,11 +1461,11 @@ int advance(char *lp, char *ep)
 		return(0);
 
 	case CBRA:
-		braslist[*ep++] = lp;
+		braslist[(unsigned char)*ep++] = lp;
 		continue;
 
 	case CKET:
-		braelist[*ep++] = lp;
+		braelist[(unsigned char)*ep++] = lp;
 		continue;
 
 	case CBACK:

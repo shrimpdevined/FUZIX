@@ -1,1 +1,3 @@
 $ROOT	/	fuzix	defaults 0 0
+/dev/hda2	/home	fuzix	defaults 0 0
+/dev/hdb1	/mnt/sd	fat	defaults 0 0

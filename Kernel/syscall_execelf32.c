@@ -371,6 +371,11 @@ fatal:
 	udata.u_ptab->p_status = P_RUNNING;
 	ssig(udata.u_ptab, SIGKILL);
 error:
+	/* enomem: jumps here without passing through fatal:, which used to be
+	 * the only place restoring P_RUNNING.  P_NOSLEEP (>P_READY) would then
+	 * make switchout() decrement nready with no matching increment and
+	 * strand the process (and its fds/inode refs) forever. */
+	udata.u_ptab->p_status = P_RUNNING;
 	if (abuf)
 		tmpfree(abuf);
 	if (ebuf)

@@ -71,6 +71,7 @@ float expf(float x)
 	} else {
 		/* raise inexact */
 		volatile float dummy = 0x1p127f + x;
+		(void)dummy;
 		return 1 + x;
 	}
 

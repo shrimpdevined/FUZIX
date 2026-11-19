@@ -1,0 +1,39 @@
+ROOT = ../..
+include $(ROOT)/Target/rules.armm0
+# amacc's densely written lexer triggers this cosmetic warning; its original
+# layout is retained so the proven frontend stays readable against upstream.
+CFLAGS += -Wno-misleading-indentation
+
+SRCS = runbin.c fcc.c cpp.c cc.c
+OBJS = $(SRCS:.c=.o) thumb.o
+APPS = runbin fcc cpp cc
+
+all: $(APPS) size.report
+
+$(APPS): $(CRT0)
+
+thumb.o: thumb.c ir.h
+	$(CC) $(CFLAGS) -c thumb.c -o thumb.o
+
+runbin: runbin.o $(CRT0)
+	$(LINKER) $^ -o $@.debug $(LINKER_OPT)
+	$(STRIP) -o $@ $(STRIP_OPT) $@.debug
+
+fcc: fcc.o thumb.o $(CRT0)
+	$(LINKER) $^ -o $@.debug $(LINKER_OPT)
+	$(STRIP) -o $@ $(STRIP_OPT) $@.debug
+
+cpp: cpp.o $(CRT0)
+	$(LINKER) $^ -o $@.debug $(LINKER_OPT)
+	$(STRIP) -o $@ $(STRIP_OPT) $@.debug
+
+cc: cc.o $(CRT0)
+	$(LINKER) $^ -o $@.debug $(LINKER_OPT)
+	$(STRIP) -o $@ $(STRIP_OPT) $@.debug
+
+size.report: $(APPS)
+	ls -l $^ > $@
+
+clean:
+	rm -f $(OBJS) $(APPS) $(APPS:.o=) core *~ *.asm *.lst *.sym *.map \
+	      *.bin size.report *.o *.text *.data *.debug

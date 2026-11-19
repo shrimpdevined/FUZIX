@@ -9,13 +9,6 @@ static void writes(int fd, const char *p)
     write(fd, p, strlen(p));
 }
 
-char *basename(char *name)
-{
-    char *base = rindex(name, '/');
-    return base ? base + 1 : name;
-}
-
-
 int main(int argc, const char *argv[])
 {
     int i /*, recurse = 0, interact =0 */ ;

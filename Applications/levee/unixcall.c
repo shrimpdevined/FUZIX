@@ -40,7 +40,7 @@ max(int a,int b)
     return (a<b) ? b : a;
 }
 
-strput(char *s)
+void strput(char *s)
 {
     if (s)
 	write(1, s, strlen(s));
@@ -52,7 +52,7 @@ char *basename(char *s)
 {
     register char *p;
 
-    if (p=strrchr(s,'/'))
+    if ((p=strrchr(s,'/')))
 	return 1+p;
     return s;
 }

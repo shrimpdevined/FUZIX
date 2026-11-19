@@ -30,6 +30,15 @@ uint_fast8_t sd_drive = SD_DRIVE_NONE;
  * the card to finish before issuing the next command. We won't unassert CS
  * until this is done. */
 static bool deferredwrite;
+/* Sticky error reported (via kputs) only after sd_drive is released, so the
+ * LCD console path cannot steal the shared SPI bus mid-SD-command. */
+uint_fast8_t sd_error_retry;
+
+/* SDXC cards can take far longer than 500 ms to finish a program cycle when
+ * the FAT layer rewrites metadata (a common compiler workload).  Use a
+ * multi-second bound so a slow write is not mistaken for a wedged card. */
+#define SD_WRITE_TIMEOUT_MS  3000
+#define SD_CMD_TIMEOUT_MS    2000
 
 uint_fast8_t devsd_transfer_sector(void)
 {
@@ -43,6 +52,16 @@ uint_fast8_t devsd_transfer_sector(void)
     barrier();
 
     for(attempt=0; attempt<8; attempt++){
+        /* After a few failures the card may be wedged mid-program (eg the
+         * shared LCD bus deselected it).  Re-initialize at slow clock before
+         * trying again rather than hammering a stuck card. */
+        if (attempt == 3 || attempt == 6) {
+            sd_spi_raise_cs();
+            {
+                uint_fast8_t ct = sd_spi_init();
+                if (ct) sd_set_highspeed(ct);  /* restore CMD6 + fast clock */
+            }
+        }
 	if(sd_send_command(blk_op.is_read ? CMD17 : CMD24, 
                     /* for byte addressed cards, shift LBA to convert to byte address */
                     (blk_op.blkdev->driver_data & CT_BLOCK) ? blk_op.lba : (blk_op.lba << 9)
@@ -65,31 +84,45 @@ uint_fast8_t devsd_transfer_sector(void)
 	} else
 	    success = false;
 
-	if (blk_op.is_read) {
-		sd_spi_release();
-		deferredwrite = 0;
-	} else {
-		/* Leave CS asserted so the write can complete */
-		deferredwrite = 1;
-	}
+	/* Complete any write before returning.  The LCD shares this SPI bus and
+	 * drives CS low on every draw; leaving a write deferred let it deselect
+	 * the card mid-program, which wedged the next command. */
+	deferredwrite = blk_op.is_read ? 0 : 1;
+	sd_spi_release();
 	
 	if(success) {
             sd_drive = SD_DRIVE_NONE;
 	    return 1;
         }
 
-	kputs("sd: failed, retrying.\n");
+	/* Do NOT kputs() here: the console routes through the LCD which shares
+	 * this SPI bus and would deassert SD CS / switch to 62 MHz mid-command,
+	 * guaranteeing every retry fails.  A sticky flag is reported after the
+	 * bus is released. */
+	sd_error_retry = 1;
     }
 
     udata.u_error = EIO;
     sd_drive = SD_DRIVE_NONE;
+    /* Bus is released; safe to print now (LCD can use the SPI bus). */
+    if (sd_error_retry) {
+        kputs("sd: failed, retrying.\n");
+        sd_error_retry = 0;
+    }
     return 0;
 }
 
 void sd_spi_release(void)
 {
 	if (deferredwrite) {
-		for (;;) {
+		/* Bound the busy wait: if the card was deselected mid-program on a
+		 * shared bus it may hold DO low forever.  Time out rather than hang
+		 * the whole kernel (which used to wedge the shell prompt).  The
+		 * bound is generous enough for SDXC erase/program cycles; on
+		 * expiry we still raise CS, but the retry loop will re-init the
+		 * card if it remained busy. */
+		timer_t timer = set_timer_ms(SD_WRITE_TIMEOUT_MS);
+		while (!timer_expired(timer)) {
 			uint_fast8_t b = sd_spi_receive_byte();
 			if (b != 0x00)
 				break;
@@ -138,7 +171,7 @@ uint_fast8_t sd_spi_wait(bool want_ff)
     unsigned int timer;
     uint_fast8_t b;
 
-    timer = set_timer_ms(500);
+    timer = set_timer_ms(SD_CMD_TIMEOUT_MS);
 
     while(true){
         b = sd_spi_receive_byte();
@@ -150,7 +183,8 @@ uint_fast8_t sd_spi_wait(bool want_ff)
                 break;
         }
         if(timer_expired(timer)){
-            kputs("sd: timeout\n");
+            /* Defer the message until the SD bus is released (see above). */
+            sd_error_retry = 1;
             break;
         }
 

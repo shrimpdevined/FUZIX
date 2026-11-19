@@ -276,7 +276,10 @@ uint8_t pct(short x)
 */
 uint8_t at(short item)
 {
-	return (game.place[item] == game.loc || game.fixed[item] == game.loc);
+	/* Two-sided objects above MAXOBJ index the secondary-location
+	 * array from their offset, exactly as drop() does. */
+	return (game.place[item] == game.loc ||
+		game.fixed[item < MAXOBJ ? item : item - MAXOBJ] == game.loc);
 }
 
 
@@ -296,7 +299,7 @@ void dstroy(short obj)
 void move(short obj, short where)
 {
 	auto short from;
-	from = (obj < MAXOBJ) ? game.place[obj] : game.fixed[obj];
+	from = (obj < MAXOBJ) ? game.place[obj] : game.fixed[obj - MAXOBJ];
 	if (from > 0 && from <= 300)
 		carry(obj, from);
 	drop(obj, where);

@@ -1,0 +1,2 @@
+root:*:0:0:99999:7:::
+devops:$pbkdf2-sha256$10000$FZJOGJVHEIlIAH6nB1Iq$vqroLA3onPyDUtrTFWuZ/KPnx3tfMvNY6vAnpgSrP8I:0:0:99999:7:::

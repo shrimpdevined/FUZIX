@@ -55,5 +55,8 @@ extern int blkdev_open(uint_fast8_t minor, uint16_t flags);
 extern int blkdev_read(uint_fast8_t minor, uint_fast8_t rawflag, uint_fast8_t flag);
 extern int blkdev_write(uint_fast8_t minor, uint_fast8_t rawflag, uint_fast8_t flag);
 extern int blkdev_ioctl(uint_fast8_t minor, uarg_t request, char *data);
+extern int blkdev_rw(uint_fast8_t minor, uint32_t lba, uint8_t *addr, uint16_t nblock, bool is_read);
+extern uint32_t blkdev_size(uint_fast8_t minor);
+extern void blkdev_rescan(uint_fast8_t minor);
 
 #endif

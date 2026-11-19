@@ -48,6 +48,10 @@ struct vt_repeat {
 /* Core functions */
 void vtoutput(unsigned char *p, unsigned int len);
 void vtinit(void);
+/* Deferred output: interrupt/echo paths enqueue, thread/idle context drains */
+void vtdefer(unsigned char c);
+void vt_task(void);
+void vt_purge(void);
 /* Mode switcher functions */
 void vt_save(struct vt_switch *vt);
 void vt_load(struct vt_switch *vt);

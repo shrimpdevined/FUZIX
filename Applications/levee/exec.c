@@ -27,7 +27,7 @@
  */
 #define exprintln()	(zotscreen=YES),println()
 
-PROC
+void PROC
 plural(int num, char *string)
 {
     printi(num);
@@ -37,7 +37,7 @@ plural(int num, char *string)
 } /* plural */
 
 
-PROC
+void PROC
 clrmsg(void)
 {
     mvcur(-1,0);
@@ -45,7 +45,7 @@ clrmsg(void)
 } /* clrmsg */
 
 
-PROC
+void PROC
 errmsg(char *msg)
 {
     mvcur(-1,0);
@@ -73,15 +73,15 @@ getarg(void)
 } /* getarg */
 
 
-PROC
-version()
+void PROC
+version(void)
 /* version: print which version of levee we are... */
 {
     errmsg("levee ");prints(ED_NOTICE);printch(ED_REVISION);
 } /* version */
 
 
-PROC
+void PROC
 args(void)
 /* args: print the argument list */
 {
@@ -110,19 +110,18 @@ args(void)
     }
 } /* args */
     
-PROC
+void PROC
 setcmd(void)
 {
     bool no,b;
-    int len,i;
     register char *arg;
     char *num;
     register struct variable *vp;
     
-    if (arg = getarg()) {
+    if ((arg = getarg())) {
 	do {
 	    if (*arg != 0) {
-		if (num = strchr(arg, '=')) {
+		if ((num = strchr(arg, '='))) {
 		    b = NO;
 		    *num++ = 0;
 		}
@@ -166,7 +165,7 @@ setcmd(void)
 		    diddled |= vp->v_flags & V_DISPLAY;
 		}
 	    }
-	} while (arg = getarg());
+	} while ((arg = getarg()));
     }
     else {
 	version(); exprintln();
@@ -201,14 +200,14 @@ setcmd(void)
 
 
 /* print a macro */
-PROC
+void PROC
 printone(int i)
 {
     if (i >= 0) {
 	exprintln();
 	printch(mbuffer[i].token);
 	mvcur(-1,3);
-	if (movemap[mbuffer[i].token] == INSMACRO)
+	if (movemap[(unsigned char)mbuffer[i].token] == INSMACRO)
 	    prints("!= ");
 	else
 	    prints(" = ");
@@ -218,7 +217,7 @@ printone(int i)
 
 
 /* print all the macros */
-PROC
+void PROC
 printall(void)
 {
     int i;
@@ -229,7 +228,7 @@ printall(void)
 
 
 /* :map ch text */
-PROC
+int PROC
 map(bool insert)
 {
     register char *macro, c;
@@ -257,22 +256,23 @@ map(bool insert)
 	    undefine(lookup(c));
 	    mbuffer[i].token = c;
 	    mbuffer[i].m_text = strdup(execstr);
-	    mbuffer[i].oldmap = movemap[c];
+	    mbuffer[i].oldmap = movemap[(unsigned char)c];
 	    if (insert)
-		movemap[c] = INSMACRO;
+		movemap[(unsigned char)c] = INSMACRO;
 	    else
-		movemap[c] = SOFTMACRO;
+		movemap[(unsigned char)c] = SOFTMACRO;
 	}
     }
+    return 0;
 } /* map */
 
 
-PROC
+void PROC
 undefine(int i)
 {
     register char *p;
     if (i >= 0) {
-	movemap[mbuffer[i].token] = mbuffer[i].oldmap;
+	movemap[(unsigned char)mbuffer[i].token] = mbuffer[i].oldmap;
 	mbuffer[i].token = 0;
 	p = mbuffer[i].m_text;
 	free(p);
@@ -281,13 +281,13 @@ undefine(int i)
 } /* undefine */
 
 
-PROC
+int PROC
 unmap(void)
 {
     int i;
     register char *arg;
     
-    if (arg=getarg()) {
+    if ((arg=getarg())) {
 	if (strlen(arg) == 1) {
 	    undefine(lookup(*arg));
 	    return YES;
@@ -336,8 +336,8 @@ getname(void)
     register char *p;
 #endif
     register char *name;
-    if (name = getarg()) {
-	if (strcmp(name,"#") == 0)
+    if ((name = getarg())) {
+	if (strcmp(name,"#") == 0) {
 	    if (*altnm)
 		name = altnm;
 	    else {
@@ -345,6 +345,7 @@ getname(void)
 		wilderr++;
 		return NULL;
 	    }
+	}
 #if ST
 	if (mapslash)
 	    for (p=name; *p; p++)
@@ -361,7 +362,7 @@ int  high,low;		/* low && high end of command range */
 bool affirm;		/* cmd! */
 /* s/[src]/dst[/options] */
 /* s& */
-PROC
+int PROC
 cutandpaste(void)
 {
     bool askme  = NO,
@@ -424,10 +425,11 @@ splat:	errmsg("bad substitute");
 	plural(num," substitution");
     }
     fixupline((newcurr > -1) ? newcurr : oldcurr);
+    return 0;
 } /* cutandpaste */
 
 
-PROC
+void PROC
 inputf(char *fname, bool newbuf)
 {
     int onright,	/* text moved right for :read */
@@ -503,12 +505,13 @@ inputf(char *fname, bool newbuf)
 
 
 /* Change a file's name (for autocopy). */
-PROC
+void PROC
 backup(char *name)
 {
     char back[80];
     char *p;
 
+    (void)p;
     strcpy(back, name);
 #if UNIX
     strcat(back, "~");
@@ -542,7 +545,7 @@ outputf(char *fname)
     whole = (low == 0 && high >= bufmax-1);
     if (whole && autocopy)
 	backup(fname);
-    if (f=fopen(fname, "w")) {
+    if ((f=fopen(fname, "w"))) {
 	status = putfile(f, low, high);
 	fclose(f);
 	if (status) {
@@ -562,12 +565,12 @@ outputf(char *fname)
 } /* outputf */
 
 
-PROC
+int PROC
 oktoedit(int writeold)
 /* check and see if it is ok to edit a new file */
 /* writeold;	automatically write out changes? */
 {
-    if (modified && !affirm)
+    if (modified && !affirm) {
 	if (readonly) {
 	    errmsg(fisro);
 	    return NO;
@@ -581,6 +584,7 @@ oktoedit(int writeold)
 	    errmsg(fismod);
 	    return NO;
 	}
+    }
     return YES;
 } /* oktoedit */
 
@@ -607,7 +611,7 @@ writefile(void)
 }
 
 
-PROC
+int PROC
 editfile(void)
 {
     register char *name = NULL;	/* file to edit */
@@ -623,7 +627,7 @@ editfile(void)
 	do {
 	    if (!expandargs(name, &myargc, &myargv))
 		return 0;
-	} while (name=getarg());
+	} while ((name=getarg()));
     if (myargc == 0) {
 	if (*filenm)
 	    name = filenm;
@@ -638,10 +642,11 @@ editfile(void)
     killargs(&myargc, &myargv);
     if (name && oktoedit(NO))
 	doinput(name);
+    return 0;
 }
 
 
-PROC
+void PROC
 doinput(char *name)
 {
     inputf(name, YES);
@@ -650,7 +655,7 @@ doinput(char *name)
 }
 
 
-PROC
+void PROC
 toedit(int count)
 {
     if (count > 1) {
@@ -660,30 +665,29 @@ toedit(int count)
 }
 
 
-PROC
+void PROC
 readfile(void)
 {
     register char *name;
     
-    if (name=getarg())
+    if ((name=getarg()))
 	inputf(name,NO);
     else
 	errmsg("no file to read");
 }
 
 
-PROC
+int PROC
 nextfile(bool prev)
 {
     register char *name = NULL;
     int newpc=pc,
-	what,
 	myargc=0;
     char **myargv;
     bool newlist = NO;
     
     if (prev == 0)
-	while (name=getarg())
+	while ((name=getarg()))
 	    if (!expandargs(name, &myargc, &myargv))
 		return 0;
     
@@ -722,13 +726,14 @@ nextfile(bool prev)
     killem: if (!prev)
 		killargs(&myargc, &myargv);
     }
+    return 0;
 }
 
 
 /*
  * set up low, high; set dot to low
  */
-PROC
+void PROC
 fixupline(int dft)
 {
     if (low < 0)
@@ -752,7 +757,7 @@ fixupline(int dft)
 }
 
 
-PROC
+void PROC
 whatline(void)
 {
     printi(to_line((low < 0) ? (bufmax-1) : low));
@@ -763,7 +768,7 @@ whatline(void)
 }
 
 
-PROC
+void PROC
 print(void)
 {
     do {
@@ -799,7 +804,7 @@ do_file(char *fname, exec_type *mode, bool *noquit)
 }
 
 
-PROC doins(bool flag)
+void PROC doins(bool flag)
 {
     int i;
     curr = low;
@@ -834,7 +839,7 @@ char * PROC findbounds(char *ip)
 
 
 /* parse the command line for lineranges && a command */
-PROC parse(char *inp)
+int PROC parse(char *inp)
 {
     int j,k;
     char cmd[80];
@@ -880,7 +885,7 @@ PROC parse(char *inp)
 
 
 /* inner loop of execmode */
-PROC
+void PROC
 exec(char *cmd, exec_type *mode, bool *noquit)
 {
     int  what;
@@ -931,13 +936,14 @@ exec(char *cmd, exec_type *mode, bool *noquit)
 	    break;
 	case EX_XIT:
 	    clrmsg();
-	    if (modified)
+	    if (modified) {
 		if (readonly) {
 		    prints(fisro);
 		    break;
 		}
 		else if (!writefile())
 		    break;
+	    }
 
 	    if (!affirm && (argc-pc > 1)) {	/* any more files to edit? */
 		printch('(');
@@ -954,7 +960,7 @@ exec(char *cmd, exec_type *mode, bool *noquit)
 	    ok = unmap();
 	    break;
 	case EX_FILE:				/* :file */
-	    if (cmd=getarg()) {		/* :file name */
+	    if ((cmd=getarg())) {		/* :file name */
 		strcpy(altnm, filenm);
 		strcpy(filenm, cmd);
 		pc = addarg(filenm);

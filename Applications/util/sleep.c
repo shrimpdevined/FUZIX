@@ -72,5 +72,6 @@ int main(int argc, char *argv[])
 
     sleep(seconds);
     exit(0);
+    return 0;
 }
 

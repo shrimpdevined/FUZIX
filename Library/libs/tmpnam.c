@@ -29,7 +29,7 @@ char *tmpnam(char *s)
 
     do {
         sprintf(ret_val, "%s/%05d%c%c%c", P_tmpdir, getpid(), 
-	     uniq_ch[c1], uniq_ch[c2], uniq_ch[c3]);
+	     uniq_ch[(unsigned char)c1], uniq_ch[(unsigned char)c2], uniq_ch[(unsigned char)c3]);
         if (++c1 >= 62) {
   	    c1 = 0;
 	    if (++c2 >= 62) {

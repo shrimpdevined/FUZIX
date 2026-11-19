@@ -672,7 +672,7 @@ void dwarves(void)
 		 * in the original version... */
 		for (try = 1; try < 20; ++try) {
 			j = rand() % 106 + 15;	/* allowed area */
-			if (j != game.odloc[i] && j != game.dloc[i] && !(i == (DWARFMAX - 1) && (game.cond[j] & NOPIRAT) == 1))
+			if (j != game.odloc[i] && j != game.dloc[i] && !(i == (DWARFMAX - 1) && (game.cond[j] & NOPIRAT) != 0))
 				break;
 		}
 		if (j == 0)

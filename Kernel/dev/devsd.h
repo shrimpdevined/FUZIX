@@ -61,6 +61,7 @@ int sd_send_command(uint_fast8_t cmd, uint32_t arg);
 uint_fast8_t sd_spi_wait(bool want_ff);
 void sd_init_drive(uint8_t drive);
 int sd_spi_init(void);
+void sd_set_highspeed(uint_fast8_t card_type);
 uint_fast8_t devsd_transfer_sector(void);
 
 /* Definitions for MMC/SDC command */
@@ -71,6 +72,7 @@ uint_fast8_t devsd_transfer_sector(void);
 #define CMD9    (0x40+9)    /* SEND_CSD */
 #define CMD10   (0x40+10)   /* SEND_CID */
 #define CMD12   (0x40+12)   /* STOP_TRANSMISSION */
+#define CMD6    (0x40+6)    /* SWITCH_FUNC: select high-speed mode */
 #define ACMD13  (0xC0+13)   /* SD_STATUS (SDC) */
 #define CMD16   (0x40+16)   /* SET_BLOCKLEN */
 #define CMD17   (0x40+17)   /* READ_SINGLE_BLOCK */

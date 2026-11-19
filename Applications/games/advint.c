@@ -570,6 +570,7 @@ int main(int argc, char *argv[])
 
 	/* play the game */
 	play();
+	return 0;
 }
 
 /* play - the main loop */
@@ -1520,7 +1521,7 @@ int decode(int ch)
 /* get_block - get a block of message text */
 void get_block(unsigned int blk)
 {
-	int last, n;
+	int last = -1, n;
 	long loff;
 
 	/* first check the cache */

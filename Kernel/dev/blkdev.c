@@ -89,6 +89,71 @@ static int translate_lba(uint_fast8_t minor)
     return 0;
 }
 
+/*
+ *	Raw sector I/O with a full 32-bit LBA.  The normal read/write paths carry
+ *	a 16-bit block number (blkno_t) and so cannot reach past 32MB.  The FAT
+ *	driver needs to address the whole card, so it uses this path instead.
+ *	The buffer must be kernel memory.
+ */
+int blkdev_rw(uint_fast8_t minor, uint32_t lba, uint8_t *addr,
+	      uint16_t nblock, bool is_read)
+{
+    uint_fast8_t drive = minor >> 4;
+
+    if (drive >= MAX_BLKDEV || blkdev_table[drive].transfer == NULL)
+	return -1;
+
+    blk_op.blkdev = &blkdev_table[drive];
+    blk_op.is_user = 0;
+    blk_op.is_read = is_read;
+    blk_op.addr = addr;
+    blk_op.lba = lba;
+    blk_op.nblock = nblock;
+
+    if (translate_lba(minor))
+	return -1;
+
+    while (blk_op.nblock) {
+	uint_fast8_t n = blk_op.blkdev->transfer();
+	if (n == 0)
+	    return -1;
+	blk_op.nblock -= n;
+	blk_op.addr += n * BLKSIZE;
+	blk_op.lba += n;
+    }
+    return 0;
+}
+
+/* Return the size in 512-byte sectors of a device or partition. */
+uint32_t blkdev_size(uint_fast8_t minor)
+{
+    uint_fast8_t drive = minor >> 4;
+    uint_fast8_t partition = minor & 0x0F;
+
+    if (drive >= MAX_BLKDEV)
+	return 0;
+    if (partition == 0)
+	return blkdev_table[drive].drive_lba_count;
+    return blkdev_table[drive].lba_count[partition - 1];
+}
+
+/* Re-read the partition table for a drive (after writing a new one). */
+void blkdev_rescan(uint_fast8_t minor)
+{
+    uint_fast8_t drive = minor >> 4;
+    blkdev_t *blk;
+    uint_fast8_t i;
+
+    if (drive >= MAX_BLKDEV)
+	return;
+    blk = &blkdev_table[drive];
+    for (i = 0; i < MAX_PARTITIONS; i++) {
+	blk->lba_first[i] = 0;
+	blk->lba_count[i] = 0;
+    }
+    blkdev_scan(blk, 0);
+}
+
 static int blkdev_transfer(uint_fast8_t minor, uint_fast8_t rawflag)
 {
     uint_fast8_t n;
@@ -154,8 +219,17 @@ int blkdev_write(uint_fast8_t minor, uint_fast8_t rawflag, uint_fast8_t flag)
     return blkdev_transfer(minor, rawflag);
 }
 
+#ifdef CONFIG_FATFS
+extern int devfat_mkfs(uint16_t dev);
+#endif
+
 int blkdev_ioctl(uint_fast8_t minor, uarg_t request, char *data)
 {
+#ifdef CONFIG_FATFS
+    if (request == HDIO_MKFS)
+        return devfat_mkfs(minor);
+#endif
+
     used(data); /* unused */
 
     /* we trust that blkdev_open() has already verified that this minor number is valid */

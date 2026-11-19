@@ -75,6 +75,7 @@ SRCS  = \
 	mail.c \
 	man.c \
 	manscan.c \
+	mkfat.c \
 	mkfs.c \
 	mode.c \
 	more.c \
@@ -95,7 +96,9 @@ SRCS  = \
 	sort.c \
 	stty.c \
 	su.c \
+	sudo.c \
 	swapon.c \
+	firstboot.c \
 	tar.c \
 	tail.c \
 	termcap.c \
@@ -128,13 +131,22 @@ APPS = $(OBJS:.o=)
 APPSNS = $(OBJSNS:.o=)
 APPTC = $(OBJTC:.o=)
 
+# These programs share the password database helpers.
+AUTHAPPS = passwd su sudo firstboot
+AUTHOBJS = authutil.o
+
 all: $(APPS) $(APPSNS) $(APPTC) $(APPOTHER) size.report
 
-$(APPS): %: %.o
+$(filter-out $(AUTHAPPS),$(APPS)): %: %.o
 	$(LINKER) $(CRT0) $^ -o $@ $(LINKER_OPT) $(LINKER_TAIL)
 
 $(APPSNS): %: %.o
 	$(LINKER) $(CRT0NS) $^ -o $@ $(LINKER_OPT) $(LINKER_TAIL)
+
+$(AUTHAPPS): %: %.o $(AUTHOBJS)
+	$(LINKER) $(CRT0) $^ -o $@ $(LINKER_OPT) $(LINKER_TAIL)
+
+$(AUTHOBJS): authutil.h
 
 $(APPTC): %: %.o
 	$(LINKER) $(CRT0) $^ -o $@ $(LINKER_OPT) -ltermcap$(USERCPU) $(LINKER_TAIL)

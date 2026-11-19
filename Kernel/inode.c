@@ -1,3 +1,4 @@
+#include "platform/platform-rpipico/devfat.h"
 #include <kernel.h>
 #include <kdata.h>
 #include <printf.h>
@@ -69,6 +70,10 @@ static uint16_t mapcalc(inoptr ino, usize_t *size, uint_fast8_t m)
 /* Writei (and readi) need more i/o error handling */
 void readi(regptr inoptr ino, uint_fast8_t flag)
 {
+    if (fs_tab[ino->c_super].m_flags & 0x80) {
+        devfat_readi(ino);
+        return;
+    }
 	usize_t amount;
 	blkno_t pblk;
 	bufptr bp;
@@ -172,6 +177,10 @@ void readi(regptr inoptr ino, uint_fast8_t flag)
 
 void writei(regptr inoptr ino, uint_fast8_t flag)
 {
+    if (fs_tab[ino->c_super].m_flags & 0x80) {
+        devfat_writei(ino);
+        return;
+    }
 	usize_t amount;
 	bufptr bp;
 	bool ispipe = false;
@@ -376,11 +385,18 @@ void sync(void)
 	/* Write out modified inodes */
 
 	for (ino = i_tab; ino < i_tab + ITABSIZE; ++ino)
-		if (ino->c_refs > 0 && (ino->c_flags & CDIRTY)) {
+		/* Only write genuinely live inodes: a freed slot has c_refs==0
+		 * and c_magic cleared, and wr_inode()->magic() would panic. */
+		if (ino->c_refs > 0 && ino->c_magic == CMAGIC &&
+		    (ino->c_flags & CDIRTY)) {
 			wr_inode(ino);
 			ino->c_flags &= ~CDIRTY;
 		}
 	for (m = fs_tab; m < fs_tab + NMOUNTS; m++) {
+		/* FAT volumes have no Fuzix superblock; writing one here
+		 * corrupts their boot/FSInfo sector. */
+		if (m->m_flags & 0x80)
+			continue;
 		if (m->m_dev != NO_DEVICE &&
 			m->m_fs.s_fmod != FMOD_CLEAN) {
 			/* GO_CLEAN means write a CLEAN to the media */

@@ -74,6 +74,8 @@ char key = 0;			/* key mode of command (t,x,c) */
 int noreplace = 0;		/* replace old files? */
 int cksum = 1;			/* don't worry about cksums */
 struct stat astat;		/* stat of archive file */
+static char fullname[260];	/* ustar prefix + '/' + name, NUL terminated */
+static char *tname;		/* pathname used by the extraction helpers */
 
 
 /* read blk from record */
@@ -144,7 +146,7 @@ static void b8put(uint32_t x, char *ptr)
 /* Print filename for error reporting */
 static void pname(void)
 {
-	fprintf(stderr, "%s ", h.name);
+	fprintf(stderr, "%s ", tname);
 	perror("");
 }
 
@@ -152,7 +154,7 @@ static void pname(void)
 /* Change owner/group of file to match tar file */
 static void my_chown(void)
 {
-	int x = chown(h.name, b8get(h.uid, 8),
+	int x = chown(tname, b8get(h.uid, 8),
 		      b8get(h.gid, 8));
 	if (x < 0)
 		pname();
@@ -162,7 +164,7 @@ static void my_chown(void)
 /* Change mod of file to match tar file */
 static void my_chmod(void)
 {
-	int x = chmod(h.name, b8get(h.mode, 8));
+	int x = chmod(tname, b8get(h.mode, 8));
 	if (x < 0)
 		pname();
 }
@@ -294,7 +296,7 @@ static void printheader(void)
 
 	}
 	if (key == 't' || verbose)
-		printf("%s\n", h.name);
+		printf("%s\n", tname);
 }
 
 
@@ -481,6 +483,9 @@ static void makeparents(char *path)
 		if (!e)
 			return;
 		l = e - path;
+		/* do not overrun the fixed-size component buffer */
+		if (l >= (int)sizeof(c))
+			l = (int)sizeof(c) - 1;
 		memcpy(c,path,l);
 		c[l] = 0;
 		mkdir(c,0755);
@@ -520,13 +525,32 @@ static void extract(char *argv[])
 		}
 
 		/* remove trailing '/' */
-		while (h.name[strlen(h.name) - 1] == '/')
+		while (h.name[0] && h.name[strlen(h.name) - 1] == '/')
 			h.name[strlen(h.name) - 1] = 0;
+
+		/* Build a bounded, NUL-terminated pathname. ustar splits long
+		   names into a 155 byte prefix and a 100 byte name. */
+		{
+			size_t pl = 0;
+			size_t nl = 0;
+
+			tname = fullname;
+			while (nl < sizeof(h.name) && h.name[nl] != '\0')
+				nl++;
+			if (!strncmp(h.ustar, "ustar", 5) && h.prefix[0] != '\0') {
+				while (pl < sizeof(h.prefix) && h.prefix[pl] != '\0')
+					pl++;
+				memcpy(fullname, h.prefix, pl);
+				fullname[pl++] = '/';
+			}
+			memcpy(fullname + pl, h.name, nl);
+			fullname[pl + nl] = '\0';
+		}
 
 		/* does entry match any cmd line args? */
 		if (argv[optind]) {
 			for (x = optind; argv[x]; x++) {
-				if (!strcmp(h.name, argv[x]))
+				if (!strcmp(tname, argv[x]))
 					goto cont;
 			}
 			skip();
@@ -537,11 +561,11 @@ static void extract(char *argv[])
 
 		uflag = !strncmp(h.ustar, "ustar", 5);
 
-		makeparents(h.name);
+		makeparents(tname);
 
 		switch (h.type) {
 		case '1':	/* a hard link */
-			x = link(h.lname, h.name);
+			x = link(h.lname, tname);
 			if (x < 0) {
 				pname();
 				break;
@@ -553,7 +577,7 @@ static void extract(char *argv[])
 			fprintf(stderr, "soft links not supported\n");
 			break;
 		case '3':	/* a charactor device */
-			x = mknod(h.name, b8get(h.mode, 8) | S_IFCHR, (b8get(h.major, 8) << 8) + b8get(h.minor, 8));
+			x = mknod(tname, b8get(h.mode, 8) | S_IFCHR, (b8get(h.major, 8) << 8) + b8get(h.minor, 8));
 			if (x > 0) {
 				pname();
 				break;
@@ -561,7 +585,7 @@ static void extract(char *argv[])
 			my_chown();
 			break;
 		case '4':	/* a block device */
-			x = mknod(h.name, b8get(h.mode, 8) | S_IFBLK, (b8get(h.major, 8) << 8) + b8get(h.minor, 8));
+			x = mknod(tname, b8get(h.mode, 8) | S_IFBLK, (b8get(h.major, 8) << 8) + b8get(h.minor, 8));
 			if (x < 0) {
 				pname();
 				break;
@@ -569,7 +593,7 @@ static void extract(char *argv[])
 			my_chown();
 			break;
 		case '5':	/* a directory */
-			x = mkdir(h.name, b8get(h.mode, 8));
+			x = mkdir(tname, b8get(h.mode, 8));
 			if (x) {
 				pname();
 				break;
@@ -577,7 +601,7 @@ static void extract(char *argv[])
 			my_chown();
 			break;
 		case '6':	/* a FIFO */
-			x = mkfifo(h.name, b8get(h.mode, 8));
+			x = mkfifo(tname, b8get(h.mode, 8));
 			if (x < 0) {
 				pname();
 				break;
@@ -596,13 +620,13 @@ static void extract(char *argv[])
 				count = size / 512;
 				rem = size % 512;
 				/* check for existance of file */
-				if (noreplace && !access(h.name, F_OK)) {
+				if (noreplace && !access(tname, F_OK)) {
 					errno = EEXIST;
 					pname();
 					continue;
 				}
 				/* open output file */
-				outfile = open(h.name, O_CREAT | O_WRONLY | O_TRUNC, 0700);
+				outfile = open(tname, O_CREAT | O_WRONLY | O_TRUNC, 0700);
 				if (outfile < 0) {
 					pname();
 					break;
@@ -685,6 +709,7 @@ int main(int argc, char *argv[])
 {
 	int o;
 
+	tname = h.name;
 	ofile = getenv("TAPE");
 	
 	while ((o = getopt(argc, argv, "xtcvnkf:b:")) > 0) {

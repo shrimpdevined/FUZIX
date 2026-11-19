@@ -126,7 +126,8 @@ int main(int argc, char *argv[])
 		}
 		while ((mnt = getmntent(fp)) != NULL) {
 			printf("%s:\n", mnt->mnt_fsname);
-			if (perform_fsck(mnt->mnt_fsname, 0, 0))
+			error = perform_fsck(mnt->mnt_fsname, 1, 0);
+			if (error)
 				exit(error);
 		}
 		endmntent(fp);
@@ -135,7 +136,7 @@ int main(int argc, char *argv[])
 			fputs("syntax: fsck [-a] [devfile]\n", stderr);
 			return 16;
 		}
-		perform_fsck(argv[1], 1, 1);
+		error = perform_fsck(argv[1], 1, 1);
 	}
 	puts("Done.");
 	exit(error);

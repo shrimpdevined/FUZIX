@@ -282,6 +282,9 @@ extern ttyready_t tty_writeready(uint_fast8_t minor);
 extern void tty_sleeping(uint_fast8_t minor);
 extern void tty_putc(uint_fast8_t minor, uint_fast8_t c);
 extern void tty_setup(uint_fast8_t minor, uint_fast8_t flags);
+/* Platform hook: drain any device-side input staging buffer for this tty.
+ * Weak no-op by default; platforms with buffered USB input override it. */
+extern void tty_flushinput(uint_fast8_t minor) __attribute__((weak));
 extern int tty_carrier(uint_fast8_t minor);
 extern void tty_data_consumed(uint_fast8_t minor);
 /* PTY pieces: 8 ptys both sides of */

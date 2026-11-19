@@ -80,8 +80,8 @@ int output(int on1, int on2)	/* print items from olist */
 	} else {
 		for (i = 0; i < no; i++) {
 			temp = ppi[olistf[i]][olist[i]];
-			if(olistf[i]==F1 && on1<=olist[i] ||
-			   olistf[i]==F2 && on2<=olist[i] ||
+			if((olistf[i]==F1 && on1<=olist[i]) ||
+			   (olistf[i]==F2 && on2<=olist[i]) ||
 			   *temp==0)
 				temp = null;
 			printf("%s", temp);
@@ -91,13 +91,14 @@ int output(int on1, int on2)	/* print items from olist */
 				printf("%c", sep1);
 		}
 	}
+	return 0;
 }
 
 int main(int argc, const char *argv[])
 {
 	int i;
 	int n1, n2;
-	long top2, bot2;
+	long top2 = 0, bot2;
 
 	while (argc > 1 && argv[1][0] == '-') {
 		if (argv[1][1] == '\0')
@@ -171,12 +172,12 @@ int main(int argc, const char *argv[])
 	get1();
 	bot2 = ftell(f[F2]);
 	get2();
-	while(n1>0 && n2>0 || aflg!=0 && n1+n2>0) {
-		if(n1>0 && n2>0 && comp()>0 || n1==0) {
+	while((n1>0 && n2>0) || (aflg!=0 && n1+n2>0)) {
+		if((n1>0 && n2>0 && comp()>0) || n1==0) {
 			if(aflg&2) output(0, n2);
 			bot2 = ftell(f[F2]);
 			get2();
-		} else if(n1>0 && n2>0 && comp()<0 || n2==0) {
+		} else if((n1>0 && n2>0 && comp()<0) || n2==0) {
 			if(aflg&1) output(n1, 0);
 			get1();
 		} else /*(n1>0 && n2>0 && comp()==0)*/ {
@@ -192,7 +193,7 @@ int main(int argc, const char *argv[])
 				if(n1>0 && n2>0 && comp()==0) {
 					output(n1, n2);
 					get2();
-				} else if(n1>0 && n2>0 && comp()<0 || n2==0) {
+				} else if((n1>0 && n2>0 && comp()<0) || n2==0) {
 					fseek(f[F2], bot2, 0);
 					get2();
 					get1();

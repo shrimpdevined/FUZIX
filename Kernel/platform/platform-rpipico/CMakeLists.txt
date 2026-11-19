@@ -6,7 +6,11 @@ include(pico_sdk_import.cmake)
 project(fuzix C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_BUILD_TYPE Debug)
-set(PICO_COPY_TO_RAM 1)
+# Execute from XIP flash.  Copying .text to RAM consumed ~87 KB of the
+# 264 KB Pico RAM, squeezing the self-hosted compiler and forcing stack
+# corruption workarounds.  Flash execution is fast enough for SPI-based
+# console/LCD/SD and gives the user pool the RAM it needs.
+set(PICO_COPY_TO_RAM 0)
 option(TOTALMEM "specify how much TOTALMEM is present" 0)
 
 add_compile_definitions(
@@ -41,6 +45,10 @@ add_executable(fuzix
 	core1.c
 	devgpio.c
 	usbdescriptors.c
+	devlcd.c
+	devkb.c
+	devtouch.c
+	devfat.c
 	../../dev/blkdev.c
 	../../dev/mbr.c
 	../../dev/devsd_discard.c
@@ -53,6 +61,9 @@ add_executable(fuzix
 	../../devio.c
 	../../devsys.c
 	../../filesys.c
+	../../dev/fatfs/ff.c
+	../../dev/fatfs/ffunicode.c
+	../../dev/fatfs/diskio.c
 	../../inode.c
 	../../kdata.c
 	../../cpu-armm0/lowlevel-armm0.c
@@ -71,6 +82,7 @@ add_executable(fuzix
 	../../syscall_proc.c
 	../../timer.c
 	../../tty.c
+    ../../vt.c
 	../../usermem.c
 	../../version.c
 	../../dev/net/net_native.c
@@ -78,15 +90,26 @@ add_executable(fuzix
 	../../network.c
 )
 
+# Expose the standard Raspberry Pi USB reset interface so picotool can
+# reboot the board into BOOTSEL mode without physical button access.
+target_compile_definitions(fuzix PRIVATE
+    PICO_ENABLE_USB_RESET_VIA_VENDOR_INTERFACE=1
+    PICO_USB_RESET_SUPPORT_MS_OS_20_DESCRIPTOR=0
+    PICO_USB_RESET_INCLUDE_DEFAULT_APP_DRIVER_CB=1
+)
+
 target_link_libraries(fuzix
-	pico_stdlib
-	pico_multicore
-	hardware_flash
-	hardware_spi
-	tinyusb_device
+    pico_stdlib
+    pico_usb_reset
+    pico_multicore
+    hardware_flash
+    hardware_spi
+    hardware_i2c
+    tinyusb_device
 )
 
 pico_set_float_implementation(fuzix none)
 pico_set_double_implementation(fuzix none)
 pico_add_extra_outputs(fuzix)
 
+set_target_properties(fuzix PROPERTIES LINKER_LANGUAGE C)

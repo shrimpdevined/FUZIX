@@ -158,7 +158,7 @@ int main(int argc, char *argv[])
         case 'E':
             /* if arg starts with ^, then ^@=0x00 and ^Z=0x1A
                 otherwise escape char is used verbatim */
-            if (optarg[0] == '^' && (optarg[1] < 'A' || optarg[1] > 'Z') || optarg[1])
+            if ((optarg[0] == '^' && (optarg[1] < 'A' || optarg[1] > 'Z')) || optarg[1])
             {
                 fprintf(stderr, "invalid char\n");
                 exit(1);
@@ -257,4 +257,5 @@ int main(int argc, char *argv[])
         }
         quit();
     }
+    return 0;
 }

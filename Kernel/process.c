@@ -344,8 +344,10 @@ void makeproc(regptr ptptr p, u_data *u)
 
 	e = u->u_files + UFTSIZE;
 	for (j = u->u_files; j < e; ++j) {
-		if (*j != NO_FILE)
+		if (*j != NO_FILE && *j < OFTSIZE)
 			++of_tab[*j].o_refs;
+		else
+			*j = NO_FILE;
 	}
 	irqrestore(irq);
 }
@@ -572,6 +574,21 @@ void unix_syscall(void)
 			udata.u_retval, udata.u_error);
 #endif
 	}
+	/* Diagnostic: catch the exact syscall that leaves a corrupt fd in
+	 * the process file table, before a later getinode() panics. */
+	{
+		int fdi;
+		for (fdi = 0; fdi < UFTSIZE; ++fdi) {
+			uint8_t oi = udata.u_files[fdi];
+			if (oi != NO_FILE && oi >= OFTSIZE) {
+				kprintf("FDCHECK pid %d cmd '%s' syscall %d fd %d=%d\n",
+					udata.u_ptab->p_pid, udata.u_ptab->p_name,
+					udata.u_callno, fdi, oi);
+				break;
+			}
+		}
+	}
+
 	udata.u_ptab->p_timeout = 0;
 
 	sync_clock();
@@ -908,6 +925,28 @@ static int signal_parent(ptptr c)
 	return 1;
 }
 
+/* Flushing the entire buffer cache on every process exit is pointless work
+ * for short-lived commands (cpp, fcc, shells) and, on the Pico, costs several
+ * seconds of flash/SD traffic — long enough to look like a hung console.
+ * Throttle it to at most one sync per interval; an explicit sync(2) is of
+ * course always honoured. */
+#define EXIT_SYNC_TICKS (TICKSPERSEC * 10)
+static clock_t last_exit_sync;
+
+static int exit_sync_due(void)
+{
+	irqflags_t irq = di();
+	clock_t now = ticks.full;
+	int due = 0;
+
+	if ((uint32_t)(now - last_exit_sync) >= (uint32_t)EXIT_SYNC_TICKS) {
+		last_exit_sync = now;
+		due = 1;
+	}
+	irqrestore(irq);
+	return due;
+}
+
 void doexit(uint16_t val)
 {
 	uint_fast8_t j;
@@ -924,7 +963,8 @@ void doexit(uint16_t val)
 	if (udata.u_ptab->p_pid == 1)
 		panic(PANIC_KILLED_INIT);
 
-	sync();		/* Not necessary, but a good idea. */
+	if (exit_sync_due())
+		sync();		/* Not necessary, but a good idea (throttled). */
 
 	irq = di();
 
@@ -935,15 +975,13 @@ void doexit(uint16_t val)
 	udata.u_ptab->p_sig[1].s_held = 0xFFFFU;
 	udata.u_cursig = 0;
 
-	/* Discard our memory before we blow away and reuse the memory */
-#ifdef CONFIG_PLATFORM_UDMA
-	plt_udma_kill(udata.u_ptab);
-#endif
-	pagemap_free(udata.u_ptab);
-
+	/* doclose() can sleep.  On this platform the process memory holding
+	 * udata and the kernel stack must stay mapped until the slot can no
+	 * longer be selected by another process. */
 	for (j = 0; j < UFTSIZE; ++j) {
-		if (udata.u_files[j] != NO_FILE)
+		if (udata.u_files[j] != NO_FILE && udata.u_files[j] < OFTSIZE)
 			doclose(j);
+		udata.u_files[j] = NO_FILE;
 	}
 
 	udata.u_ptab->p_exitval = val;
@@ -996,6 +1034,10 @@ void doexit(uint16_t val)
         udata.u_page = 0xFFFFU;
         udata.u_page2 = 0xFFFFU;
         signal_parent(udata.u_ptab);
+#ifdef CONFIG_PLATFORM_UDMA
+	plt_udma_kill(udata.u_ptab);
+#endif
+	pagemap_free(udata.u_ptab);
 	nready--;
 	nproc--;
 	switchin(getproc());

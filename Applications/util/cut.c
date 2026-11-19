@@ -150,7 +150,7 @@ void get_args(void)
 
 void cut(void)
 {
-    int i, j, length, maxcol;
+    int i, j, length, maxcol = 0;
     char *columns[MAX_FIELD];
 
     while (fgets(line, BUFSIZ, fd)) {

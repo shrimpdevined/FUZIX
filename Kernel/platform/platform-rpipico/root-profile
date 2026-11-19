@@ -1,0 +1,6 @@
+# ~/.profile: executed by the Bourne shell for login shells.
+
+# Bash style prompt: user@host:cwd followed by $, or # for uid 0.
+PS1='\u@\h:\w\$ '
+
+umask 022

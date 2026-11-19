@@ -2,9 +2,9 @@ ENTRY (_start)
 
 PHDRS {
 	dynamic PT_DYNAMIC;
-	text PT_LOAD;
-	data PT_LOAD;
-	info PT_LOAD;
+	text PT_LOAD FLAGS(5);	/* PF_R | PF_X */
+	data PT_LOAD FLAGS(6);	/* PF_R | PF_W */
+	info PT_LOAD FLAGS(4);	/* PF_R */
 }
 
 SECTIONS {

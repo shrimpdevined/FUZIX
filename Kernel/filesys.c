@@ -1,3 +1,4 @@
+#include "platform/platform-rpipico/devfat.h"
 #undef DEBUG
 #include <kernel.h>
 #include <kdata.h>
@@ -199,6 +200,8 @@ nodir:
 
 inoptr srch_dir(register inoptr wd, uint8_t *compname)
 {
+    if (fs_tab[wd->c_super].m_flags & 0x80)
+        return devfat_srch_dir(wd, (const char *)compname);
     register struct direct *d;
     register blkno_t curblock;
     register struct blkbuf *buf;
@@ -270,6 +273,18 @@ inoptr i_open(register uint16_t dev, uint16_t ino)
 
     validchk(dev, PANIC_IOPEN);
 
+    m = fs_tab_get(dev);
+    if (m && (m->m_flags & 0x80)) {
+        /* FAT inodes are interned string paths, never allocated by
+         * i_alloc(); checking this before i_alloc() avoids a getdev()
+         * panic on a FAT mount. */
+        if (!ino) {
+            udata.u_error = EIO;
+            return NULLINODE;
+        }
+        return devfat_i_open(dev, ino);
+    }
+
     if(!ino){        /* ino==0 means we want a new one */
         isnew = true;
         ino = i_alloc(dev);
@@ -278,8 +293,6 @@ inoptr i_open(register uint16_t dev, uint16_t ino)
             return NULLINODE;
         }
     }
-
-    m = fs_tab_get(dev);
 
     /* Maybe make this DEBUG only eventually - the fs_tab_get cost
        is higher than ideal */
@@ -293,7 +306,11 @@ inoptr i_open(register uint16_t dev, uint16_t ino)
         if(!j->c_refs) // free slot?
             nindex = j;
 
-        if(j->c_dev == dev && j->c_num == ino) {
+        /* Only a genuinely live inode may be treated as already open.
+         * i_deref() leaves c_dev/c_num/c_magic on a freed slot, so matching
+         * on (dev,ino) alone resurrects a stale slot (refs 0 -> 1) and
+         * returns stale c_node data.  Mirror the FAT-side C7 hardening. */
+        if(j->c_refs && j->c_magic == CMAGIC && j->c_dev == dev && j->c_num == ino) {
             nindex = j;
             goto found;
         }
@@ -344,10 +361,14 @@ bool emptydir(register inoptr wd)
         udata.u_sysio = true;
         readi(wd, 0);
 
-        /* Read until EOF or name is found.  readi() advances udata.u_offset */
+        /* Read until EOF or name is found.  readi() advances udata.u_offset.
+         * Check the byte count first: a filesystem that returns no data at
+         * EOF (notably FAT) leaves curentry untouched. */
+        if (udata.u_done != DIR_LEN)
+            break;
         if (*curentry.d_name)
             return false;
-    } while(udata.u_done == DIR_LEN);
+    } while(1);
 
     return true;
 }
@@ -503,13 +524,25 @@ inoptr newfile(register inoptr pino, uint8_t *name)
         goto nogood;
     }
 
+    if (fs_tab[pino->c_super].m_flags & 0x80) {
+        /* The non-FAT path below drops the parent reference via
+         * i_unlock_deref() on every exit.  devfat_newfile() does not (and
+         * must not, the FAT path never locks pino), so the caller's contract
+         * "newfile drops parent for us" requires us to do it here.  Without
+         * this, every open(O_CREAT) on the FAT mount leaks one c_ref on the
+         * parent directory inode; c_refs is uint8_t, so ~128 creates wrap it
+         * to 0 and the next i_deref() panics with "inode freed". */
+        inoptr ni = devfat_newfile(pino, (const char *)name);
+        i_deref(pino);
+        return ni;
+    }
     if (!(nindex = i_open(pino->c_dev, 0))) {
         udata.u_error = ENFILE;
         goto nogood;
     }
 
     i_lock(pino);	/* Lock in tree order */
-    i_lock(ino);
+    i_lock(nindex);
     /* This does not implement BSD style "sticky" groups */
     nindex->c_node.i_uid = udata.u_euid;
     nindex->c_node.i_gid = udata.u_egid;
@@ -648,6 +681,13 @@ corrupt:
 void i_free(uint16_t devno, uint16_t ino)
 {
     register fsptr dev;
+    struct mount *m = fs_tab_get(devno);
+
+    /* FAT inodes are not Fuzix inodes; the directory entry has already
+     * been removed through FatFs.  getdev() would also panic because a
+     * FAT mount has no Fuzix superblock counters. */
+    if (m && (m->m_flags & 0x80))
+        return;
 
     if(baddev(dev = getdev(devno)))
         return;
@@ -853,12 +893,24 @@ int_fast8_t uf_alloc(void)
 
 void i_deref(register inoptr ino)
 {
-    uint_fast8_t mode = getmode(ino);
+    uint_fast8_t mode;
 
+    /* Validate the inode before reading any of its fields: getmode()
+     * touches c_node.i_mode, so a NULL/stale pointer must be caught first. */
+    if (!ino) return;
     magic(ino);
+    mode = getmode(ino);
 
-    if(!ino->c_refs)
+    if(!ino->c_refs) {
+        /* Diagnostic: identify the inode whose refcount is already zero.
+         * c_num is the FAT path slot, c_dev the device, c_super the mount.
+         * Seeing which slot/device recurs tells us whether this is stale
+         * descriptor state (same slot) or random memory corruption. */
+        kprintf("\r\nINODE-FREED diag: dev=%d num=%d super=%d magic=%x mode=%x\r\n",
+                ino->c_dev, ino->c_num, ino->c_super, ino->c_magic,
+                getmode(ino));
         panic(PANIC_INODE_FREED);
+    }
 
     if (mode == MODE_R(F_PIPE))
         wakeup((uint8_t *)ino);
@@ -870,18 +922,39 @@ void i_deref(register inoptr ino)
         /*
            SN (mcy)
            */
-        if (mode == MODE_R(F_REG) || mode == MODE_R(F_DIR) || mode == MODE_R(F_PIPE))
-            f_trunc(ino);
+        if (mode == MODE_R(F_REG) || mode == MODE_R(F_DIR) || mode == MODE_R(F_PIPE)) {
+            /* FAT files are removed through FatFs.  Calling f_trunc() on
+             * a deleted path would recreate it, and the blocks are not
+             * described by a Fuzix inode map in any case. */
+            if (!(fs_tab[ino->c_super].m_flags & 0x80))
+                f_trunc(ino);
+        }
 
     /* If the inode was modified, we must write it to disk. */
     if(!(ino->c_refs) && (ino->c_flags & CDIRTY))
     {
+        /* FAT keeps no Fuzix inode on disk. */
+        if (fs_tab[ino->c_super].m_flags & 0x80) {
+            ino->c_flags &= ~CDIRTY;
+            goto invalidate;
+        }
         if(!(ino->c_node.i_nlink))
         {
             ino->c_node.i_mode = 0;
             i_free(ino->c_dev, ino->c_num);
         }
         wr_inode(ino);
+    }
+
+invalidate:
+    /* Once an inode is unreferenced it is free.  Clear its identity so a
+     * stale OFT/inode pointer is caught by magic()/getinode() instead of
+     * silently aliasing a freshly opened file.  Without this, i_open()'s
+     * (dev,ino) match and devfat_i_open()'s slot reuse can resurrect a freed
+     * slot, leading to a double-deref and "inode freed". */
+    if (!ino->c_refs) {
+        ino->c_magic = 0;
+        ino->c_num = 0;
     }
 }
 
@@ -901,6 +974,12 @@ void wr_inode(register inoptr ino)
     blkno_t blkno;
 */
     magic(ino);
+
+    /* FAT has no Fuzix inode table: all metadata lives in the FAT
+     * directory entry, which is maintained by FatFs.  Writing the dinode
+     * through bwritei() would scribble on the SD card's reserved sectors. */
+    if (fs_tab[ino->c_super].m_flags & 0x80)
+        return;
 
     if (bwritei(ino))
         corrupt_fs(ino->c_dev);
@@ -995,15 +1074,33 @@ int f_trunc_blocks(register inoptr ino, uint16_t nblock)
 }
 
 
+/* Truncate a file to a given length.  FAT files carry no kernel block
+   map, so they must be resized through FatFs. */
+int f_trunc_to(regptr inoptr ino, off_t n)
+{
+    if (fs_tab[ino->c_super].m_flags & 0x80) {
+        if (devfat_truncate(ino, (uint32_t)n) != 0)
+            return -1;
+        /* The resize itself is performed by FatFs; keep the kernel's
+         * cached size in step so reads and later writes see the new
+         * length instead of the stale pre-truncate value. */
+        ino->c_node.i_size = n;
+        return 0;
+    }
+
+    if (n < ino->c_node.i_size) {
+        if (f_trunc_blocks(ino, BLOCK(n + BLKSIZE - 1)))
+            return -1;
+    }
+    ino->c_node.i_size = n;
+    return 0;
+}
+
 /* Truncate a file back to nothing using f_trunc_blocks and then write
    the inode size as 0 */
 int f_trunc(regptr inoptr ino)
 {
-    /* Is it worth checking size already 0 ? */
-    if (f_trunc_blocks(ino, 0))
-        return -1;
-     ino->c_node.i_size = 0;
-     return 0;
+    return f_trunc_to(ino, 0);
 }
 
 /* Companion function to f_trunc().
@@ -1116,11 +1213,42 @@ inoptr getinode(uint_fast8_t uindex)
 
     oftindex = udata.u_files[uindex];
 
-    if(oftindex >= OFTSIZE || oftindex == NO_FILE)
-        panic(PANIC_GETINO_BADT);
+    if(oftindex >= OFTSIZE || oftindex == NO_FILE) {
+        kprintf("getinode: pid %d cmd '%s' fd %d oft %d files:",
+                udata.u_ptab->p_pid, udata.u_ptab->p_name,
+                uindex, oftindex);
+        for (int k = 0; k < UFTSIZE; ++k)
+            kprintf(" %d", udata.u_files[k]);
+        kprintf(" name:");
+        for (int k = 0; k < 8; ++k)
+            kprintf(" %d", ((uint8_t *)udata.u_name)[k]);
+        kprintf(" cloexec %d top %p break %p isp %p\n",
+                udata.u_cloexec, udata.u_top, udata.u_break, udata.u_isp);
+        /* Do not freeze the whole machine for a single corrupt descriptor:
+         * clear it so the process sees EBADF and can continue. */
+        udata.u_files[uindex] = NO_FILE;
+        udata.u_error = EBADF;
+        return NULLINODE;
+    }
 
-    if((inoindex = of_tab[oftindex].o_inode) < i_tab || inoindex >= i_tab+ITABSIZE)
-        panic(PANIC_GETINO_OFT);
+    if((inoindex = of_tab[oftindex].o_inode) < i_tab || inoindex >= i_tab+ITABSIZE) {
+        kprintf("getinode: pid %d cmd '%s' fd %d bad OFT inode %p\n",
+                udata.u_ptab->p_pid, udata.u_ptab->p_name, uindex, inoindex);
+        udata.u_files[uindex] = NO_FILE;
+        udata.u_error = EBADF;
+        return NULLINODE;
+    }
+
+    /* Safety net: a freed inode (c_refs==0, magic now cleared by i_deref)
+     * must never be handed to a caller — a later i_deref() would panic with
+     * "inode freed".  Turn it into EBADF and clear the stale descriptor so
+     * the process can continue.  This is a backstop; the real fixes are the
+     * refcount/invalidation corrections in newfile() and i_deref(). */
+    if (inoindex->c_refs == 0 || inoindex->c_magic != CMAGIC) {
+        udata.u_files[uindex] = NO_FILE;
+        udata.u_error = EBADF;
+        return NULLINODE;
+    }
 
     magic(inoindex);
     return(inoindex);
@@ -1237,6 +1365,31 @@ struct mount *fmount(uint16_t dev, register inoptr ino, uint16_t flags)
 
     fp = &m->m_fs;
 
+    /* Check sector 0 for FAT32/FAT16/FAT12 BPB signature */
+    buf = bread(dev, 0, 0);
+    if (buf != NULL) {
+        char fat32_sig[5], fat16_sig[5];
+        blktok(fat32_sig, buf, 0x52, 5);
+        blktok(fat16_sig, buf, 0x36, 5);
+        brelse(buf);
+        if (memcmp(fat32_sig, "FAT32", 5) == 0 || memcmp(fat16_sig, "FAT16", 5) == 0 || memcmp(fat16_sig, "FAT12", 5) == 0) {
+            if (devfat_mount_and_provision(dev) != 0) {
+                udata.u_error = EINVAL;
+                return NULL;
+            }
+            m->m_mntpt = ino;
+            if (ino)
+                ++ino->c_refs;
+            /* FAT has no Fuzix superblock: mark it clean so generic
+             * sync()/statfs code never treats it as one. */
+            m->m_fs.s_mounted = 0;
+            m->m_fs.s_fmod = FMOD_CLEAN;
+            m->m_flags = flags | 0x80;
+            m->m_dev = dev;
+            return m;
+        }
+    }
+
     /* Get the buffer with the superblock (block 1) */
     buf = bread(dev, 1, 0);
     if (buf == NULL)
@@ -1281,8 +1434,12 @@ struct mount *fmount(uint16_t dev, register inoptr ino, uint16_t flags)
 
 void magic(inoptr ino)
 {
-    if(ino->c_magic != CMAGIC)
+    if(ino->c_magic != CMAGIC) {
+        kprintf("magic: inode %d magic %u dev %d num %d refs %d pid %d cmd '%s'\n",
+                ino - i_tab, ino->c_magic, ino->c_dev, ino->c_num,
+                ino->c_refs, udata.u_ptab->p_pid, udata.u_ptab->p_name);
         panic(PANIC_CORRUPTI);
+    }
 }
 
 /* This is a helper function used by _unlink and _rename; it doesn't really
@@ -1299,8 +1456,12 @@ arg_t unlinki(inoptr ino, inoptr pino, uint8_t *fname)
 		return -1;
 	}
 
-	/* Remove the directory entry (ch_link checks perms) */
-	if (!ch_link(pino, fname, (uint8_t *)"", NULLINODE))
+	/* Remove the directory entry (ch_link checks perms).  FAT stores
+	   directory entries in its own format, so let FatFs remove it. */
+	if (fs_tab[pino->c_super].m_flags & 0x80) {
+		if (devfat_unlink(ino, pino, (const char *)fname))
+			return -1;
+	} else if (!ch_link(pino, fname, (uint8_t *)"", NULLINODE))
 		return -1;
 
 	/* Decrease the link count of the inode */

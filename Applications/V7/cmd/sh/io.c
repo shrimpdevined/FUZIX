@@ -76,6 +76,7 @@ int chkopen(const char *idf)
 		failed(idf, badopen);
 	else
 		return rc;
+	return 0;
 }
 
 void sh_rename(register int f1, register int f2)
@@ -96,6 +97,7 @@ int create(const char *s)
 		failed(s, badcreate);
 	else
 		return rc;
+	return 0;
 }
 
 int tmpfil(void)

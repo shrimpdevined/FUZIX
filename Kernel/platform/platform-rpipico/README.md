@@ -4,21 +4,24 @@
 
 The Raspberry Pi Pico is a very small and very cheap microcontroller board based
 around the Raspberry Pi Foundation's RP2040 chip. It's got two Cortex-M0+ cores,
-2MB of onboard NAND flash which can be used for code via a demand-paging system,
-and 264kB of RAM.
+2MB of onboard QSPI NOR flash from which the kernel executes directly (XIP) and
+which also holds the filesystems, and 264kB of RAM.
 
 The Fuzix port runs in cooperative multitasking mode with the root filesystem on
-NAND, and with an optional SD card on the second SPI interface for anything
-else. It supports both console over UART and it'll also pretend to be a USB
-serial device. There's enough memory to run four or five processes at once, and
-you can enable swapping to the SD card for up to 15.
+the QSPI NOR flash, and with an optional SD card on the second SPI interface for
+anything else. It supports both console over UART and it'll also pretend to be a
+USB serial device. There's enough memory to run four or five processes at once,
+and you can enable swapping to the SD card for up to 15.
 
 ## Configuration
 
 Out of the box:
 
-- /dev/hda is the NAND flash, containing the root filesystem. It can be
-  partitioned but there's no real point, so it isn't.
+- /dev/hda is the on-board QSPI NOR flash, mapped through the Dhara FTL and
+  partitioned into two filesystems: /dev/hda1 holds the firmware root filesystem
+  (essential OS and commands), and /dev/hda2 is the user filesystem, mounted at
+  /home. Keeping them separate means user data can never consume the firmware
+  partition.
 
 - /dev/hdb is the SD card. Fuzix understands DOS partition tables. It's not hot
   swappable as the SD card is only probed at boot time.
@@ -76,50 +79,58 @@ You do not need to install the [Raspberry Pi Pico
 SDK](https://www.raspberrypi.org/documentation/pico/getting-started/), up to
 date version will be pulled automatically from git.
 
-To build Pico and Pico W image, run: `make TARGET=rpipico SUBTARGET=pico_w
-diskimage` To build Pico 2 and Pico 2 W, run: `make TARGET=rpipico
-SUBTARGET=pico2 diskimage`
+To build a Pico or Pico W image, run `make TARGET=rpipico SUBTARGET=pico image`
+(or `SUBTARGET=pico_w`). For a Pico 2 or Pico 2 W, use `SUBTARGET=pico2` (or
+`SUBTARGET=pico2_w`). `diskimage` is an alias for `image`.
 
-Go to `Kernel/platform/platform-rpipico`. You will see `build/fuzix.uf2` and
-`filesystem.uf2`.
+Go to `Kernel/platform/platform-rpipico`. You will see `build/fuzix.uf2`,
+`filesystem.uf2`, and `fuzix_pico_complete.uf2` — a single UF2 containing both
+the kernel and the filesystem, ready to flash in one step.
 
 ### Installing Kernel
 
 - Push and hold the BOOTSEL button as you plug usb into your computer.
 - Copy `build/fuzix.uf2` onto the storage device. After copying is done, Pico
   will restart into FUZIX.
+- To install the kernel and filesystem together, copy `fuzix_pico_complete.uf2`
+  instead.
 - To update the kernel, repeat the same procedure.
 
 ### Installing filesystem onto flash
 
-The Pico's built-in NAND flash is supported, appearing as `/dev/hda` insize
-Fuzix (the SD card is on `/dev/hdb`).  It's mapped via the Dhara FTL library, so
-you get proper wear levelling.  The FTL library requires empty flash sectors to
-work efficiently; the Fuzix filesystem has trim support, so the FTL library gets
-notified when sectors become free, but if the filesystem gets very full and
-Dhara runs out it can get extremely slow as it constantly does garbage
-collection.
+The Pico's built-in QSPI NOR flash is supported, appearing as `/dev/hda` inside
+Fuzix (the SD card is on `/dev/hdb`). It is partitioned into `/dev/hda1`, the
+firmware root filesystem, and `/dev/hda2`, the user filesystem mounted at
+`/home`. It's mapped via the Dhara FTL library, so you get proper wear levelling.
+The FTL library requires empty flash sectors to work efficiently; the Fuzix
+filesystem has trim support, so the FTL library gets notified when sectors become
+free, but if the filesystem gets very full and Dhara runs out it can get
+extremely slow as it constantly does garbage collection.
 
 To flash the image either:
 
-- Follow the same steps as for the kernel using `filesystem.uf2` file.
+- Copy the combined `fuzix_pico_complete.uf2` (kernel + filesystem) to the board
+  in one step, as described above.
+- Follow the same steps as for the kernel using the `filesystem.uf2` file on its
+  own.
 - Using picotool
   - Connect a terminal to UART 0 on the Pico.
   - Copy `filesystem.ftl` to the board by executing `picotool load
-    filesystem.ftl -t bin -o 0x10018000`.
+    filesystem.ftl -t bin -o 0x10034000`.
 
 ### Installing filesystem onto SD card
 
 If you want to use an SD card, note that only filesystems up to 32MB are
 supported.
 
-Filesystem image files are located in `FUZIX/Images/rpipico`.
+The optional SD application tree is staged in `sdcard/fuzix` under
+`Kernel/platform/platform-rpipico` by the build; the kernel and essential
+userland already live in internal flash.
 
-Partition SD card on your computer using MBR partition scheme then create 32MB
-partition. If using Linux or MacOS you can then copy `filesys.img` or
-`filesys8.img` onto the SD card using `dd` command.
+Partition the SD card on your computer using the MBR partition scheme and create
+a FAT partition, then copy the `sdcard/fuzix` tree onto it, for example:
 
-``` dd if=filesystem.img of=/dev/sdXn oflag=direct bs=8192 ```
+``` cp -r sdcard/fuzix /media/SDCARD/ ```
 
 The first thing you probably want to do is `stty erase '^?'` to make the DELETE
 key in your terminal work properly. (Use the `levee` editor to add it to
@@ -129,7 +140,8 @@ key in your terminal work properly. (Use the `levee` editor to add it to
 
 The Pico Fuzix port runs generic Cortex M0 ELF pie binaries, which are
 theoretically portable to other ARM or Cortex devices, but this hasn't been
-tried yet. There's 64kB available for both code and data; the system call
+tried yet. There's 200kB of user memory available (USERMEM), of which up to
+~177kB is available to a program's code and data (PROGSIZE); the system call
 interface uses `svc`.
 
 The Pico's mask ROM contains many useful routines which can be used instead of
@@ -159,14 +171,14 @@ Device    Boot  Head Sector Cylinder   Head Sector Cylinder  Type  Sector count
 # swapon /dev/hdb1 4096
 # free
          total         used         free
-Mem:       160           56          104
+Mem:       200           56          144
 Swap:     2048            0         2048
 # 
 ```
 
 You can't turn swap off again.
 
-You probably can swap to the NAND flash, but it's a terrible idea.
+You probably can swap to the QSPI NOR flash, but it's a terrible idea.
 
 ## Issues
 

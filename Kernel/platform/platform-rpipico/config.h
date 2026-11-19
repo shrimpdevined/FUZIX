@@ -1,6 +1,22 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 #include "tusb_config.h"
+
+/* The kernel now runs XIP from QSPI flash with core1 parked by the multicore
+ * lockout during flash operations, so kernel text no longer squeezes the
+ * 264 KB of RAM.  The fixed tables below stay trimmed to leave ample headroom
+ * for the core1 stack and the self-hosting compiler; a stack overflow would
+ * otherwise corrupt the inode cache and open-file table, producing
+ * "panic: corrupt inode"/"bad desc table". */
+#ifndef OFTSIZE
+#define OFTSIZE   56
+#endif
+#ifndef ITABSIZE
+#define ITABSIZE  45
+#endif
+#ifndef PTABSIZE
+#define PTABSIZE  16
+#endif
 /*
  * Set this according to your SD card pins
  *  CONFIG_RC2040
@@ -29,6 +45,10 @@
 
 /* We have a GPIO interface */
 #define CONFIG_DEV_GPIO
+/* I2C CardKB keypad on GPIO0/1 (I2C0, addr 0x5F).  A runtime presence probe
+ * in devkb.c ensures nothing is injected unless a device actually ACKs, so
+ * there are no phantom keystrokes when no keypad is fitted. */
+#define CONFIG_I2C_KEYBOARD
 /* Enable to make ^Z dump the inode table for debug */
 #undef CONFIG_IDUMP
 /* Enable to make ^A drop back into the monitor */
@@ -56,6 +76,8 @@
 /* Enable SD card code. */
 #define CONFIG_SD
 #define SD_DRIVE_COUNT 1
+/* FAT filesystem support (devfat.c). */
+#define CONFIG_FATFS
 /* Enable dynamic swap. */
 #define CONFIG_PLATFORM_SWAPCTL
 /* Platform manages process brk. */
@@ -65,36 +87,33 @@
 
 #define CONFIG_32BIT
 #define CONFIG_USERMEM_DIRECT
-/* Serial TTY, no VT or font */
-#undef CONFIG_VT
-#undef CONFIG_FONT8X8
+/* Virtual terminal (LCD) is enabled below with CONFIG_VT. */
 
 /* Built in NAND flash. Warning, it's unstable. */
 #define CONFIG_PICO_FLASH
 
 /* Program layout */
 
-#define UDATA_BLKS  3
+#define UDATA_BLKS  6
 #define UDATA_SIZE  (UDATA_BLKS << BLKSHIFT)
 
-#define TOTALMEM 160
-#if TOTALMEM == 0
-#error TOTALMEM should have been defined via cmake
-#endif
-#define NETMEM 0
+/* Single source of truth for the memory split.  The RP2040 has 264 KB SRAM.
+ * The kernel (page tables, buffers, FTL, console rings, 4 KB mkfs work area)
+ * needs ~50 KB; the remaining ~210 KB is the user pool.  USERMEM is sized so
+ * the kernel link leaves a few KB of headroom.  TOTALMEM/NETMEM are removed —
+ * the old values (128/0) were dead after the #undef and only caused confusion. */
+#define USERMEM (202 * 1024)
 
-#ifdef CONFIG_NET
-#undef NETMEM
-#define NETMEM 10
-#endif
-
-#define USERMEM ((TOTALMEM-NETMEM)*1024)
-
-#define PROGSIZE (65536 - UDATA_SIZE)
+/* A self-hosted C compiler needs more than the stock 64 KB per process.
+ * PROGSIZE is the per-process ceiling, leaving a guard for UDATA and the
+ * kernel-side swap bookkeeping inside the user pool. */
+#define PROGSIZE (182 * 1024 - UDATA_SIZE)
 extern uint8_t progbase[USERMEM];
 #define udata (*(struct u_data*)progbase)
 
-#define USERSTACK (4*1024) /* 4kB */
+/* rm/cpp/fcc and FatFs path handling need more than 4 KB of user
+ * stack; overflow used to corrupt udata (fd table, inode pointers). */
+#define USERSTACK (7*1024) /* 7 kB */
 
 #define CONFIG_CUSTOM_VALADDR
 #define PROGBASE ((uaddr_t)&progbase[0])
@@ -103,7 +122,9 @@ extern uint8_t progbase[USERMEM];
 #define SWAPBASE PROGBASE
 #define SWAPTOP (PROGBASE + (uaddr_t)alignup(udata.u_break - PROGBASE, 1<<BLKSHIFT)) /* never swap in/out data above break */
 #define SWAP_SIZE   ((PROGSIZE >> BLKSHIFT) + UDATA_BLKS)
-#define MAX_SWAPS   (2048*2 / SWAP_SIZE) /* for a 2MB swap partition */
+/* hda3 swap is 512 blocks (256 KB); SWAP_SIZE ~= 182 KB, so at most one
+ * full process image fits.  Keep the array small and honest. */
+#define MAX_SWAPS   2
 
 #define BOOT_TTY (512 + 1)   /* Set this to default device for stdio, stderr */
                           /* In this case, the default is the first TTY device */
@@ -121,7 +142,6 @@ extern uint8_t progbase[USERMEM];
 #define CMDLINE	NULL	  /* Location of root dev name */
 
 #define BOOTDEVICENAMES "hd#"
-#define SWAPDEV    (swap_dev) /* dynamic swap */
 
 /* Device parameters */
 #define NUM_DEV_TTY_UART 1 /* min 1 max 2*/
@@ -133,8 +153,17 @@ extern uint8_t progbase[USERMEM];
 #define DEV_UART_1_RTS_PIN 9
 #define NUM_DEV_TTY_USB 4 /* min 1 max 4. */
 #define NUM_DEV_TTY (NUM_DEV_TTY_UART + NUM_DEV_TTY_USB)
-#define DEV_USB_DETECT_TIMEOUT 5000 /* (ms) Total timeout time to detect USB host connection*/
-#define DEV_USB_INIT_TIMEOUT 2000 /* (ms) Total timeout to try not swallow messages */
+
+/* The generic default is only 132 bytes (CONFIG_LEVEL_2 is not enabled).
+ * That is smaller than the shell's 256-byte edit buffer, so a burst of
+ * typed input (or an XMODEM block) overflows the line discipline, drops
+ * the terminating newline with a BEL and leaves the shell waiting for a
+ * line that never completes — indistinguishable from a hung console.
+ * Give each tty a full 512-byte queue; the extra 6*(512-132) bytes fit
+ * comfortably in the RP2040's SRAM. */
+#define TTYSIZ 512
+#define DEV_USB_DETECT_TIMEOUT 2000 /* (ms) wait for USB host enumeration */
+#define DEV_USB_INIT_TIMEOUT 200 /* (ms) allow CDC to settle before messages */
 
 #define TTYDEV   BOOT_TTY /* Device used by kernel for messages, panics */
 #define NBUFS    20       /* Number of block buffers */
@@ -151,6 +180,60 @@ extern uint8_t progbase[USERMEM];
 
 #define MANGLED 1
 #include "mangle.h"
+
+/* ============================================================================
+ * 2 MB Onboard QSPI Flash Partitioning (Self-Contained, Zero SD Dependency)
+ *   0x000000 - 0x033FFF (208 KB): Fuzix Kernel
+ *   0x034000 - 0x1FFFFF (1,840 KB): Dhara FTL block device
+ *       hda1: firmware root filesystem (essential OS + commands)
+ *       hda2: user filesystem, mounted at /home
+ *
+ * The FTL presents a partitioned disk; the user filesystem is deliberately
+ * separate so user data can never consume the firmware partition.
+ * ============================================================================ */
+#define CONFIG_FLASH_DISK
+
+#define BOOTDEVICE          0x0001        /* hda1: firmware root */
+/* Dynamic swap: SWAPDEV is set by the swapon() syscall.  /etc/rc enables
+ * the hda3 partition (256 KB) at boot.  See update-flash.sh for the layout. */
+#define SWAPDEV             (swap_dev)
+
+/* ============================================================================
+ * Hardware Pin Assignments
+ * ============================================================================ */
+/* Shared SPI0 Bus (Hosyond 3.5" ST7796S Display + SD Card) */
+#define PIN_SPI0_MISO       16
+#define PIN_SPI0_SCK        18
+#define PIN_SPI0_MOSI       19
+#define PIN_LCD_CS          17
+#define PIN_SD_CS           21
+
+/* ST7796S Control & Backlight */
+#define PIN_LCD_RST         20
+#define PIN_LCD_DC          22
+#define PIN_LCD_BL          27
+
+/* M5Stack CardKB (I2C0 @ 0x5F) */
+#define PIN_KB_SDA          0
+#define PIN_KB_SCL          1
+#define I2C_KB_ADDR         0x5F
+
+/* FT6336U Capacitive Touch (I2C1 @ 0x38) */
+#define PIN_CTP_SDA         6
+#define PIN_CTP_SCL         7
+#define PIN_CTP_RST         8
+#define PIN_CTP_INT         9
+#define I2C_CTP_ADDR        0x38
+
+/* ============================================================================
+ * Virtual Terminal Geometry (480x320 Landscape using 6x8 Font = 80x40 Grid)
+ * ============================================================================ */
+#define CONFIG_VT
+#define VT_WIDTH            80
+#define VT_HEIGHT           40
+#define VT_RIGHT            79
+#define VT_BOTTOM           39
+#define MAX_VT              1
 
 #endif
 // vim: sw=4 ts=4 et

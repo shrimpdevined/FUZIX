@@ -80,7 +80,11 @@ extern void unsetenv(char *__name);
 typedef void (*atexit_t)(void);
 extern int atexit(atexit_t __function);
 
-extern char *crypt(char *__key, char *__salt);
+extern char *crypt(const char *__key, const char *__salt);
+
+/* FUZIX extensions: modular crypt helpers used by the password tools. */
+extern int crypt_check(const char *__key, const char *__stored);
+extern char *crypt_generate(const char *__key);
 
 typedef int (*cmp_func_t)(const void *__a, const void *__b);
 

@@ -43,8 +43,14 @@ usize_t valaddr_w(const uint8_t *base, usize_t size)
 
 int uget(const void *user, void *dst, usize_t count)
 {
-	if (!valaddr_r(user,count))
+	/* valaddr_r() may CLAMP the range to the process top (custom validator)
+	 * rather than reject it.  The old code used it as a boolean and then
+	 * copied the full `count`, so a pointer near the top wrote past it into
+	 * kernel RAM.  Require the whole range to be valid. */
+	if (valaddr_r(user,count) < count) {
+		udata.u_error = EFAULT;
 		return -1;
+	}
 	return _uget(user,dst,count);
 }
 
@@ -70,8 +76,10 @@ uint16_t ugetw(const void *user)
 
 int uput(const void *source,   void *user, usize_t count)
 {
-	if (!valaddr_w(user, count))
+	if (valaddr_w(user, count) < count) {
+		udata.u_error = EFAULT;
 		return -1;
+	}
 	return _uput(source,user,count);
 }
 
@@ -98,8 +106,10 @@ int uputw(uint16_t value, void *user)
 
 int uzero(void *user, usize_t count)
 {
-	if (!valaddr_w(user, count))
+	if (valaddr_w(user, count) < count) {
+		udata.u_error = EFAULT;
 		return -1;
+	}
 	return _uzero(user,count);
 }
 

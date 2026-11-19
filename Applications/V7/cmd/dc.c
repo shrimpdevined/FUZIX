@@ -210,7 +210,7 @@ void commnds(void)
 			sk2 = sunputc(arg2);
 			binop('*');
 			p = pop();
-			sunputc(p);
+			(void)sunputc(p);
 			savk = sk1 + sk2;
 			if (savk > k && savk > sk1 && savk > sk2) {
 				sk = sk1;
@@ -1373,7 +1373,7 @@ void unreadc(signed char c)
 
 void binop(signed char c)
 {
-	register struct blk *r;
+	register struct blk *r = NULL;
 
 	switch (c) {
 	case '+':
@@ -1418,7 +1418,7 @@ void print(struct blk *hptr)
 	}
 	count = ll;
 	p = copy(hptr, length(hptr));
-	sunputc(p);
+	(void)sunputc(p);
 	fsfile(p);
 	if (sbackc(p) < 0) {
 		chsign(p);
@@ -1641,7 +1641,7 @@ void bigot(struct blk *p, int flg)
 		while (l-- > 0)
 			sputc(strptr, '0');
 		if (neg != 0) {
-			sunputc(strptr);
+			(void)sunputc(strptr);
 			sputc(strptr, '-');
 		}
 	}
@@ -1828,7 +1828,7 @@ int cond(signed char c)
 	if (subt() != 0)
 		return (1);
 	p = pop();
-	sunputc(p);
+	(void)sunputc(p);
 	if (length(p) == 0) {
 		release(p);
 		if (c == '<' || c == '>' || c == NE) {
@@ -1853,7 +1853,7 @@ int cond(signed char c)
 	cc = sbackc(p);
 	release(p);
 	if ((cc < 0 && (c == '<' || c == NG)) ||
-	    (cc > 0) && (c == '>' || c == NL)) {
+	    ((cc > 0) && (c == '>' || c == NL))) {
 		readc();
 		return (0);
 	}

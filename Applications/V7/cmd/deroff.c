@@ -165,8 +165,8 @@ void putmac(char *s)
 		while (*s == ' ' || *s == '\t')
 			putchar(*s++);
 		for (t = s; *t != ' ' && *t != '\t' && *t != '\0'; ++t);
-		if (t > s + 2 && chars[s[0]] == LETTER
-		    && chars[s[1]] == LETTER)
+		if (t > s + 2 && chars[(unsigned char)s[0]] == LETTER
+		    && chars[(unsigned char)s[1]] == LETTER)
 			while (s < t)
 				putchar(*s++);
 		else
@@ -185,17 +185,17 @@ void putwords(int macline)
 
 	for (p1 = line;;) {
 		/* skip initial specials ampersands and apostrophes */
-		while (chars[*p1] < DIGIT)
+		while (chars[(unsigned char)*p1] < DIGIT)
 			if (*p1++ == '\0')
 				return;
 		nlet = 0;
-		for (p = p1; (i = chars[*p]) != SPECIAL; ++p)
+		for (p = p1; (i = chars[(unsigned char)*p]) != SPECIAL; ++p)
 			if (i == LETTER)
 				++nlet;
 
 		if ((!macline && nlet > 1)	/* MDM definition of word */
-		    ||(macline && nlet > 2 && chars[p1[0]] == LETTER
-		       && chars[p1[1]] == LETTER)) {
+		    ||(macline && nlet > 2 && chars[(unsigned char)p1[0]] == LETTER
+		       && chars[(unsigned char)p1[1]] == LETTER)) {
 			/* delete trailing ampersands and apostrophes */
 			while (p[-1] == '\'' || p[-1] == '&')
 				--p;
@@ -465,4 +465,5 @@ int main(int ac, const char *av[])
 	chars['&'] = APOS;
 
 	work();
+	return 0;
 }

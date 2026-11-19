@@ -8,14 +8,16 @@
 #undef DEBUG
 
 /* A special swap and pagemap implementation for the Raspberry Pi Pico. Available
- * memory is divided into 4kB chunks; processes can occupy any number of these (up
- * to 64kB). When a process is switched in, memory is rearranged by swapping chunks
+ * memory is divided into 2kB chunks; processes can occupy any number of these (up
+ * to ~177kB). When a process is switched in, memory is rearranged by swapping chunks
  * until the running process is at the bottom of memory in the right order.
  *
  * p->p_page is 0 if swapped out, 1 is swapped in.
  */
 
-#define BLOCKSIZE 4096
+/* 2 KB allocation granularity gives twice as many slots in the
+ * 200 KB user pool, avoiding spurious OOM when several programs run. */
+#define BLOCKSIZE 2048
 #define NUM_ALLOCATION_BLOCKS (USERMEM / BLOCKSIZE)
 
 uint8_t progbase[USERMEM];
@@ -41,7 +43,13 @@ static uaddr_t get_proc_size(ptptr p)
         return 0;
     /* init is initially created with a p_top of 0, but it actually needs 512 bytes. */
     if (!p->p_top)
-        udata.u_top = p->p_top = PROGLOAD + 512;
+        p->p_top = PROGLOAD +
+#ifdef USERSTACK
+        USERSTACK            /* platform provides a real user stack */
+#else
+        512
+#endif
+        ;
     return p->p_top - PROGBASE;
 }
 
@@ -137,8 +145,16 @@ int pagemap_alloc(ptptr p)
     for (int i=0; i<blocks; i++)
     {
         struct mapentry* b = find_free_block(p);
-        if (!b)
+        if (!b) {
+            /* Roll back blocks already tagged in this call; otherwise a
+             * failed exec/brk leaks them permanently from the pool. */
+            for (int j = 0; j < i; j++) {
+                struct mapentry *e = find_block(slot, j);
+                if (e) e->slot = e->block = 0xff;
+            }
+            p->p_page = 0;
             return ENOMEM;
+        }
         b->slot = slot;
         b->block = i;
     }
@@ -170,7 +186,7 @@ int pagemap_realloc(struct exec *hdr, usize_t size)
         for (int i=blocks; i<oldblocks; i++)
         {
             struct mapentry* b = find_block(slot, i);
-            b->slot = b->block = 0xff;
+            if (b) b->slot = b->block = 0xff;
         }
     }
     else if (blocks > oldblocks)
@@ -181,8 +197,14 @@ int pagemap_realloc(struct exec *hdr, usize_t size)
         for (int i=oldblocks; i<blocks; i++)
         {
             struct mapentry* b = find_free_block(p);
-            if (!b)
+            if (!b) {
+                /* Roll back the newly-added blocks on failure. */
+                for (int j = oldblocks; j < i; j++) {
+                    struct mapentry *e = find_block(slot, j);
+                    if (e) e->slot = e->block = 0xff;
+                }
                 return ENOMEM;
+            }
             b->slot = slot;
             b->block = i;
         }
@@ -224,8 +246,16 @@ void contextswitch(ptptr p)
         kprintf("context switch from %d to %d\n", get_slot(udata.u_ptab), get_slot(p));
     #endif
 
-    if (!p->p_page)
-        swapin(p, p->p_page2);
+    if (!p->p_page) {
+        uint16_t map = p->p_page2;
+        swapin(p, map);
+        /* Return the swap map to the free pool.  swapin() clears p_page2,
+         * and the generic swapper2() that used to do this is dead code in
+         * this CONFIG_SWAP_ONLY port — without this the single 256 KB swap
+         * slot is consumed by the first swap-in and never recycled, causing
+         * permanent ENOMEM on all later allocations. */
+        swapmap_add(map);
+    }
 
     int slot = get_slot(p);
     int blocks = get_proc_size_blocks(p);
@@ -332,6 +362,7 @@ int swapout(ptptr p)
     for (int i=0; i<blocks; i++)
     {
         struct mapentry* b = find_block(slot, i);
+        if (!b) { swapmap_add(map); return ENOMEM; }  /* consistency */
         int blockindex = b - allocation_map;
         void* p = (void*)PROGBASE + blockindex*BLOCKSIZE;
 
@@ -358,6 +389,10 @@ void swapin(ptptr p, uint16_t map)
     for (int i=0; i<blocks; i++)
     {
         struct mapentry* b = find_free_block(p);
+        /* find_free_block can return NULL on OOM; the old unchecked
+         * `b - allocation_map` produced a wild pointer and corrupted kernel
+         * RAM (panic: inode freed / EXCEPTION 3).  Never swap in partially. */
+        if (!b) panic("swapin: no free block");
         int blockindex = b - allocation_map;
         void* p = (void*)PROGBASE + blockindex*BLOCKSIZE;
 
@@ -378,7 +413,7 @@ arg_t brk_extend(uaddr_t addr)
         return EINVAL;
     if (addr >= brk_limit()) {
         /* Claim more memory for this process. */
-        if (pagemap_realloc(NULL, addr - PROGBASE))
+        if (pagemap_realloc(NULL, addr - PROGLOAD))
 		{
 			kprintf("%d: out of memory by %d\n", udata.u_ptab->p_pid,
 				addr - brk_limit());

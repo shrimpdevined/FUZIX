@@ -65,8 +65,8 @@ const char atline[] = " at line ";
 const char devnull[] = "/dev/null";
 const char execpmsg[] = "+ ";
 const char readmsg[] = "> ";
-const char stdprompt[] = "$ ";
-const char supprompt[] = "# ";
+const char stdprompt[] = "\\u@\\h:\\w\\$ ";
+const char supprompt[] = "\\u@\\h:\\w\\$ ";
 const char profile[] = ".profile";
 
 

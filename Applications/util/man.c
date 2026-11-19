@@ -95,7 +95,8 @@ void build_headers(void);
 
 int find_page(char *name, char *sect)
 {
-	static char defpath[] = "/usr/local/man:/usr/man";
+	static char defpath[] =
+		"/usr/local/man:/usr/man:/mnt/sd/fuzix/share/man";
 	static char defsect[] = "1:2:3:4:5:6:7:8:9";
 	static char defsuff[] = ":.gz:.Z";
 	static char manorcat[] = "man:cat";

@@ -44,7 +44,7 @@ TREPTR makefork(int flgs, TREPTR i)
 
 static TREPTR makelist(int type, TREPTR i, TREPTR r)
 {
-	register LSTPTR t;
+	register LSTPTR t = 0;
 
 	if (i == 0 || r == 0)
 		synbad();

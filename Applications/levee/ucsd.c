@@ -21,7 +21,7 @@
 
 #ifndef moveleft
 
-PROC
+void PROC
 moveleft(char *src, char *dest, int length)
 {
     while (--length >= 0)
@@ -32,7 +32,7 @@ moveleft(char *src, char *dest, int length)
 
 #ifndef moveright
 
-PROC
+void PROC
 moveright(char *src, char *dest, int length)
 {
     src = &src[length];

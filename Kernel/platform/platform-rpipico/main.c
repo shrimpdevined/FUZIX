@@ -3,11 +3,15 @@
 #include <kdata.h>
 #include "devtty.h"
 #include "picosdk.h"
+#include <hardware/watchdog.h>
 #include "core1.h"
 #include "rawuart.h"
 #include "kernel-armm0.def"
 #include "globals.h"
 #include "printf.h"
+#include "devlcd.h"
+#include "devkb.h"
+#include "devtouch.h"
 
 //the led that indicates power
 //The on board one is pin 25
@@ -114,6 +118,21 @@ int main(void)
     gpio_put(POWER_LED, 1);
 
     di();
+
+    devlcd_init();
+#ifdef CONFIG_I2C_KEYBOARD
+    devkb_init();
+#endif
+    devtouch_init();
+
+    /* Hardware watchdog: the single guarantee of recovery from ANY lockup
+     * (Cortex-M0 nested-fault lockup, IRQ-off spin, XIP-off hang), none of
+     * which can execute the software reset in plt_monitor().  The watchdog
+     * is an independent hardware block clocked from the tick generator.
+     * 8 s is generous: flash ops are short, so a healthy core0 always feeds
+     * it from the 200 Hz timer tick; only a genuine lockup lets it expire. */
+    watchdog_enable(5000, false);
+
     fuzix_main();
 }
 

@@ -74,6 +74,7 @@ SRCS  = \
 	mail.c \
 	man.c \
 	manscan.c \
+	mkfat.c \
 	mkfs.c \
 	mode.c \
 	more.c \
@@ -94,7 +95,9 @@ SRCS  = \
 	sort.c \
 	stty.c \
 	su.c \
+	sudo.c \
 	swapon.c \
+	firstboot.c \
 	tar.c \
 	tail.c \
 	termcap.c \
@@ -108,7 +111,8 @@ SRCS  = \
 	which.c \
 	who.c \
 	write.c \
-	xargs.c
+	xargs.c \
+	xrecv.c
 
 SRCTC = fleamacs.c \
 	less.c \
@@ -130,6 +134,10 @@ APPSNS = $(OBJSNS:.o=)
 APPTC = $(OBJTC:.o=)
 APPCURSES = $(OBJCURSES:.o=)
 
+# These programs share the password database helpers.
+AUTHAPPS = passwd su sudo firstboot
+AUTHOBJS = authutil.o
+
 all: $(APPS) $(APPSNS) $(APPTC) $(APPCURSES) size.report
 
 $(APPS): $(CRT0)
@@ -137,7 +145,7 @@ $(APPSNS): $(CRT0NS)
 $(APPTC): $(CRT0)
 $(APPCURSES): $(CRT0)
 
-$(APPS) $(APPSNS): %: %.o
+$(filter-out $(AUTHAPPS),$(APPS)) $(APPSNS): %: %.o
 	$(LINKER) $^ -o $@.debug $(LINKER_OPT)
 ifdef ELF2FUZIX
 	$(STRIP) -o $@.bin $(STRIP_OPT) $@.debug
@@ -145,6 +153,17 @@ ifdef ELF2FUZIX
 else
 	$(STRIP) -o $@ $(STRIP_OPT) $@.debug
 endif
+
+$(AUTHAPPS): %: %.o $(AUTHOBJS)
+	$(LINKER) $^ -o $@.debug $(LINKER_OPT)
+ifdef ELF2FUZIX
+	$(STRIP) -o $@.bin $(STRIP_OPT) $@.debug
+	$(ELF2FUZIX) -o $@ $@.bin
+else
+	$(STRIP) -o $@ $(STRIP_OPT) $@.debug
+endif
+
+$(AUTHOBJS): authutil.h
 
 $(APPTC): %: %.o
 	$(LINKER) $^ -o $@.debug -ltermcap$(PLATFORM) $(LINKER_OPT)

@@ -63,4 +63,5 @@ int main(int argc, char *argv[])
 	if(setgid(grp->gr_gid) < 0)
 		perror("setgid");
 	done(pwd->pw_shell);
+	return 0;
 }

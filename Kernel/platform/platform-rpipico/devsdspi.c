@@ -11,57 +11,38 @@
 #include "config.h"
 #include <hardware/spi.h>
 
-#ifdef CONFIG_RC2040
+/* Shared SPI0 Bus: pins come from config.h (single source of truth). */
+#define Pico_SD_SCK PIN_SPI0_SCK
+#define Pico_SD_TX  PIN_SPI0_MOSI
+#define Pico_SD_RX  PIN_SPI0_MISO
+#define Pico_SD_CS  PIN_SD_CS
+#define Pico_LCD_CS PIN_LCD_CS     /* must stay HIGH during SD transfers */
 
-/* RC2040 board */
-/* Pico SPI GPIO connected to SD SPI1 */
-#define Pico_SD_SCK 14
-#define Pico_SD_TX  15
-#define Pico_SD_RX  12
-#define Pico_SD_CS  13
-
-//Pico spi0 or spi1 must match GPIO pins used above.
-#define Pico_SD_SPI_MOD spi1
-
-#elif defined(CONFIG_MAKER_PI)
-// Maker pico board
-// https://www.adafruit.com/product/5160
-#define Pico_SD_SCK 10
-#define Pico_SD_TX  11
-#define Pico_SD_RX  12
-#define Pico_SD_CS  15
-
-#define Pico_SD_SPI_MOD spi1
-
-#elif defined(CONFIG_PICOCALC)
-
-// Picocalc
-// https://www.clockworkpi.com/product-page/picocalc
-#define Pico_SD_SCK 18 //
-#define Pico_SD_TX  19 // MOSI
-#define Pico_SD_RX  16 // MISO
-#define Pico_SD_CS  17 // SD_CS
-
-#else
-
-/* Pico SPI GPIO connected to SD SPIO - David Given's Arrangement */
-#define Pico_SD_SCK 2
-#define Pico_SD_TX  3
-#define Pico_SD_RX  4
-#define Pico_SD_CS  5
-
-//Pico spi0 or spi1 must match GPIO pins used above.
 #define Pico_SD_SPI_MOD spi0
 
-#endif
-
 #define SLOW_SPEED 250000
-#define FAST_SPEED 4000000
+/* SD clock after init.  The card is switched to high-speed mode with CMD6
+ * before this is applied (see devsd_discard.c), which permits up to 50 MHz.
+ * Set FCC/RELIABILITY: 12 MHz is conservative and works without CMD6 on all
+ * cards; 25/50 MHz require CMD6 and good signal integrity. */
+#ifndef SD_FAST_HZ
+/* CMD6 high-speed mode (0x80FFFFF1) is now applied correctly, so 50 MHz is
+ * in-spec for SDHC/SDXC cards.  The LCD shares this bus at 62 MHz, so the
+ * LCD/SD mutual exclusion in devlcd.c keeps transactions from colliding. */
+#define SD_FAST_HZ 50000000
+#endif
+#define FAST_SPEED SD_FAST_HZ
 
 void sd_rawinit(void)
 {
+    //ensure display CS stays deselected on shared SPI0
+    gpio_init(Pico_LCD_CS);
+    gpio_set_function(Pico_LCD_CS, GPIO_FUNC_SIO);
+    gpio_set_dir(Pico_LCD_CS, true);
+    gpio_put(Pico_LCD_CS, true);
+
     //initilase GPIO ports
-    gpio_init(Pico_SD_SCK );
+    gpio_init(Pico_SD_SCK);
     gpio_init(Pico_SD_TX);
     gpio_init(Pico_SD_RX);
     gpio_init(Pico_SD_CS);
@@ -70,17 +51,24 @@ void sd_rawinit(void)
     gpio_set_function(Pico_SD_SCK, GPIO_FUNC_SPI); // SCK
     gpio_set_function(Pico_SD_TX, GPIO_FUNC_SPI);  // TX
     gpio_set_function(Pico_SD_RX, GPIO_FUNC_SPI);  // RX
+    gpio_pull_up(Pico_SD_RX);
     gpio_set_function(Pico_SD_CS, GPIO_FUNC_SIO);  // CS
     gpio_set_dir(Pico_SD_CS, true);
+    gpio_put(Pico_SD_CS, true);
 
     //initalise SPI module
-
     spi_init(Pico_SD_SPI_MOD, SLOW_SPEED);
     spi_set_format(Pico_SD_SPI_MOD, 8, 0, 0, SPI_MSB_FIRST);
 }
 
+/* LCD and SD share spi0.  Every LCD write leaves the bus clock at 62 MHz;
+ * remember which speed the SD card needs so each SD transaction can restore
+ * it before clocking any data. */
+static bool sd_fast_clock = false;
+
 void sd_spi_clock(bool go_fast)
 {
+    sd_fast_clock = go_fast;
     spi_set_baudrate(Pico_SD_SPI_MOD,
         go_fast ? FAST_SPEED : SLOW_SPEED);
 }
@@ -92,8 +80,14 @@ void sd_spi_raise_cs(void)
 
 void sd_spi_lower_cs(void)
 {
+    gpio_put(Pico_LCD_CS, true);
     gpio_put(Pico_SD_CS, false);
+    /* The shared bus clock may have been changed to the LCD's fast pixel
+     * clock since our last transfer.  Restore the SD clock before we begin. */
+    spi_set_baudrate(Pico_SD_SPI_MOD,
+        sd_fast_clock ? FAST_SPEED : SLOW_SPEED);
 }
+
 
 void sd_spi_transmit_byte(uint_fast8_t b)
 {
@@ -109,12 +103,19 @@ uint_fast8_t sd_spi_receive_byte(void)
 
 bool sd_spi_receive_sector(void)
 {
+    if (!blk_op.addr)
+        return false;
     spi_read_blocking(Pico_SD_SPI_MOD, 0xff, (uint8_t*) blk_op.addr, 512);
-        return 0;
+    /* The blocking Pico SPI API has no per-byte error-token feedback; the
+     * data-start token is validated by the caller (devsd.c). A completed
+     * transfer therefore counts as success. */
+    return true;
 }
 
 bool sd_spi_transmit_sector(void)
 {
+    if (!blk_op.addr)
+        return false;
     spi_write_blocking(Pico_SD_SPI_MOD,  (uint8_t*) blk_op.addr, 512);
-        return 0;
+    return true;
 }

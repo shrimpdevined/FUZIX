@@ -38,7 +38,7 @@
 
 #endif
 
-PROC
+void PROC
 mvcur(int y, int x)
 {
     static char gt[30];
@@ -84,7 +84,7 @@ mvcur(int y, int x)
 #endif
 }
 
-PROC numtoa(char *str, int num)
+void PROC numtoa(char *str, int num)
 {
     int i = 10;			/* I sure hope that str is 10 bytes long... */
     bool neg = (num < 0);
@@ -102,7 +102,7 @@ PROC numtoa(char *str, int num)
     moveleft(&str[i], str, 10-i);
 }
 
-PROC
+void PROC
 printi(int num)
 {
     char nb[10];
@@ -116,7 +116,7 @@ printi(int num)
     }
 }
 
-PROC
+void PROC
 println(void)
 {
     strput("\n\r");
@@ -166,7 +166,7 @@ format(char *out, unsigned c)
     }
 }
 
-PROC
+void PROC
 printch(char c)
 {
     register int size;
@@ -179,7 +179,7 @@ printch(char c)
     }
 }
 
-PROC
+void PROC
 prints(char *s)
 {
     int size,oxp = curpos.x;
@@ -196,7 +196,7 @@ prints(char *s)
 	zwrite(buf, size);
 }
 
-PROC
+void PROC
 writeline(int y,int x,int start)
 {
     int endd,oxp;
@@ -230,7 +230,7 @@ writeline(int y,int x,int start)
 
 /* redraw && refresh the screen */
 
-PROC
+void PROC
 lvrefresh(int y,int x,int start,int endd, bool rest)
 {
     int sp;
@@ -267,7 +267,7 @@ lvrefresh(int y,int x,int start,int endd, bool rest)
 
 /* redraw everything */
 
-PROC
+void PROC
 redisplay(bool flag)
 {
     if (flag)
@@ -275,7 +275,7 @@ redisplay(bool flag)
     lvrefresh(0, 0, ptop, pend, TRUE);
 }
 
-PROC
+void PROC
 scrollback(int curr)
 {
     mvcur(0,0);		/* move to the top line */
@@ -287,7 +287,7 @@ scrollback(int curr)
     setend();
 }
 
-PROC
+void PROC
 scrollforward(int curr)
 {
     do {
@@ -313,14 +313,14 @@ ok_to_scroll(int top, int bottom)
     return(nl>0);
 }
 
-PROC
+void PROC
 clrprompt(void)
 {
     mvcur(LINES-1,0);
     strput(CE);
 }
 
-PROC
+void PROC
 prompt(bool toot, char *s)
 {
     if (toot)

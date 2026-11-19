@@ -106,4 +106,5 @@ int stoi(const char *icp)
 		return (r);
 		;
 	}
+	return 0;
 }

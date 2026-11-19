@@ -1142,16 +1142,16 @@ static int advance(char *lp, char *ep)
 		return(FALSE);	/* else return false */
 
 	    case CBRA:		/* start of tagged pattern */
-		brastart[*ep++] = lp;	/* mark it */
+		brastart[(unsigned char)*ep++] = lp;	/* mark it */
 		continue;	/* and go */
 
 	    case CKET:		/* end of tagged pattern */
-		bracend[*ep++] = lp;	/* mark it */
+		bracend[(unsigned char)*ep++] = lp;	/* mark it */
 		continue;	/* and go */
 
 	    case CBACK:
-		bbeg = brastart[*ep];
-		ct = bracend[*ep++] - bbeg;
+		bbeg = brastart[(unsigned char)*ep];
+		ct = bracend[(unsigned char)*ep++] - bbeg;
 
 		if (Memcmp(bbeg, lp, ct)) {
 			lp += ct;
@@ -1160,8 +1160,8 @@ static int advance(char *lp, char *ep)
 		return(FALSE);
 
 	    case CBACK | STAR:
-		bbeg = brastart[*ep];
-		ct = bracend[*ep++] - bbeg;
+		bbeg = brastart[(unsigned char)*ep];
+		ct = bracend[(unsigned char)*ep++] - bbeg;
 		curlp = lp;
 		while (Memcmp(bbeg, lp, ct)) lp += ct;
 
@@ -1206,7 +1206,7 @@ static int advance(char *lp, char *ep)
 			return(FALSE);
 		}
 		if (*ep == CBACK) {
-			c = *(brastart[ep[1]]);
+			c = *(brastart[(unsigned char)ep[1]]);
 			do {
 				if (*lp != c) continue;
 				if (advance(lp, ep)) return (TRUE);
@@ -1370,7 +1370,7 @@ static void command(sedcmd *ipc)
       case CDCMD:		/* delete a line in hold space */
 	p1 = p2 = linebuf;
 	while (*p1 != '\n')
-		if (delete = (*p1++ == 0)) return;
+		if ((delete = (*p1++ == 0))) return;
 	p1++;
 	while ((*p2++ = *p1++) != 0) continue;
 	spend = p2 - 1;
@@ -1533,7 +1533,7 @@ cpcom:				/* so s command can jump here */
       case YCMD:
 	p1 = linebuf;
 	p2 = ipc->u.lhs;
-	while ((*p1 = p2[*p1]) != 0)
+	while ((*p1 = p2[(unsigned char)*p1]) != 0)
 		p1++;
 	break;
   }
@@ -1605,20 +1605,21 @@ static void readout(void)
 {
   register int t;		/* hold input char or EOF */
   FILE *fi;			/* ptr to file to be read */
+  size_t ai;			/* index into appends */
 
-  aptr = appends - 1;		/* arrange for pre-increment to work right */
-  while (*++aptr)
-	if ((*aptr)->command == ACMD)	/* process "a" cmd */
-		printf("%s\n", (*aptr)->u.lhs);
+  for (ai = 0; appends[ai]; ai++) {
+	if (appends[ai]->command == ACMD)	/* process "a" cmd */
+		printf("%s\n", appends[ai]->u.lhs);
 	else {			/* process "r" cmd */
-		if ((fi = fopen((*aptr)->u.lhs, "r")) == NULL) {
+		if ((fi = fopen(appends[ai]->u.lhs, "r")) == NULL) {
 			fprintf(stderr, "sed: can't open %s\n",
-				(*aptr)->u.lhs);
+				appends[ai]->u.lhs);
 			continue;
 		}
 		while ((t = getc(fi)) != EOF) putc((char) t, stdout);
 		fclose(fi);
 	}
+  }
   aptr = appends;		/* reset the append ptr */
   *aptr = 0;
 }

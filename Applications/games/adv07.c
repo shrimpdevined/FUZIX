@@ -2905,4 +2905,5 @@ int main(int argc, char *argv[])
   if (!yes_or_no() || !action_restore())
     start_game();
   main_loop();
+  return 0;
 }

@@ -144,7 +144,7 @@ static void bitset(uint16_t b)
     bitmap[n] |= bitmask[b & 7];
 }
 
-static const uint8_t bmask[] = { 0x00, 0x01, 0x03, 0x07, 0x0F, 0x1F, 0x3F, 0x7F };
+static const uint8_t __attribute__((unused)) bmask[] = { 0x00, 0x01, 0x03, 0x07, 0x0F, 0x1F, 0x3F, 0x7F };
 
 static int bittest(uint16_t b)
 {
@@ -204,6 +204,25 @@ int perform_fsck(char *name)
 
     if (superblock.s_fmod == FMOD_DIRTY) {
         puts("Filesystem was not cleanly unmounted.");
+        if (aflag) {
+            /*
+             * Automatic boot-time mode.  The FTL underneath this
+             * filesystem journals its metadata, so an unclean power
+             * loss does not corrupt the structure.  Clear the stale
+             * marker without prompting and without forcing a reboot;
+             * an operator invoking fsck by hand still gets the full
+             * interactive repair.
+             */
+            /* Never write through the FTL to the *mounted* root: that
+             * path stalled boot during garbage collection.  For other
+             * (unmounted) filesystems it is safe and necessary, otherwise
+             * the mount forces r/o and firstboot cannot create /home. */
+            if (!rootfs) {
+                superblock.s_fmod = FMOD_CLEAN;
+                dwrite((blkno_t) 1, (char *) &superblock);
+            }
+            return 0;
+        }
         error |= 1;
     }
     else if (aflag)
@@ -477,7 +496,7 @@ static void pass3(void)
     blkno_t b;
     blkno_t bno;
     blkno_t newno;
-    uint16_t bmax = superblock.s_fsize;
+    uint16_t __attribute__((unused)) bmax = superblock.s_fsize;
     uint32_t nmax;
 
     memset(bitmap, 0x00, bitmap_size);

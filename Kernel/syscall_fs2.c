@@ -383,8 +383,12 @@ arg_t _acct(void)
         inoptr inode;
         if (esuper())
                 return -1;
-        if (acct_fh != -1)
+        if (acct_fh != -1) {
                 oft_deref(acct_fh);
+                /* Clear it now: any validation failure below must not leave
+                 * a stale OFT index that a later _acct() would deref twice. */
+                acct_fh = -1;
+        }
         if (fd != -1) {
                 if ((inode = getinode(fd)) == NULLINODE)
                         return -1;

@@ -33,7 +33,7 @@ int	newend,		/* end position after change */
 
 /* move a line of text right || left */
 
-PROC
+void PROC
 adjuster(bool sleft, int endd, int sw)
 {
     bool noerror;
@@ -83,7 +83,7 @@ adjuster(bool sleft, int endd, int sw)
 
 /* join <count> lines together */
 
-PROC
+void PROC
 join(int count)
 {
     bool ok;
@@ -112,7 +112,7 @@ join(int count)
 	error();
 }
 
-PROC
+void PROC
 squiggle(int endp, char c, bool dorepl)
 {
     int i;
@@ -135,7 +135,7 @@ squiggle(int endp, char c, bool dorepl)
     }
 }
 
-PROC
+void PROC
 bigreplace(void)
 {
     int len, tsiz;
@@ -166,7 +166,7 @@ put(bool before)
     return(putback(curr, &newend));
 }
 
-PROC
+void PROC
 gcount(void)
 {
     count = 0;
@@ -176,7 +176,7 @@ gcount(void)
     }
 }
 
-PROC
+int PROC
 docommand(cmdtype cmd)
 {
     cmdtype movecmd;	/* movement command for y, d, c */
@@ -223,16 +223,16 @@ docommand(cmdtype cmd)
 	}
 	else {				/* diddle 'things' */
 	    yank.lines = FALSE;
-	    movecmd = movemap[ch];
+	    movecmd = movemap[(unsigned char)ch];
 
-	    if (ok = (findCP(curr,&endp,movecmd) == LEGALMOVE)) {
+	    if ((ok = (findCP(curr,&endp,movecmd) == LEGALMOVE))) {
 		if (curr > endp) {
 		    swap(&curr,&endp);
 		    ok = (cmd != CHANGE_C);
 		}
-		if (adjcurr[movecmd])
+		if (adjcurr[(unsigned char)movecmd])
 		    curr++;
-		if (adjendp[movecmd])
+		if (adjendp[(unsigned char)movecmd])
 		    endp++;
 	    }
 	    if (!ok) {
@@ -372,11 +372,12 @@ killredo:
     redoing = FALSE;
     xerox = FALSE;
     core[bufmax] = EOL;
+    return 0;
 }
 
 /* Initialize && execute a macro */
 
-PROC
+void PROC
 exmacro(void)
 {
     int mp;
@@ -393,15 +394,15 @@ exmacro(void)
 
 /* redraw the screen w.r.t. the cursor */
 
-PROC
+void PROC
 zdraw(char code)
 {
     int nl = ERR,
 	np = (count>0)?to_index(count):curr;
 
-    if (movemap[code] == CR_FWD)
+    if (movemap[(unsigned char)code] == CR_FWD)
 	nl = 0;
-    else if (movemap[code] == CR_BACK)
+    else if (movemap[(unsigned char)code] == CR_BACK)
 	nl = LINES-1;
     else if (code == '.')
 	nl = LINES / 2;
@@ -417,7 +418,7 @@ zdraw(char code)
 
 /* start up a built-in macro */
 
-PROC
+int PROC
 macrocommand(void)
 {
     if (count > 1)
@@ -453,11 +454,12 @@ macrocommand(void)
     if (macro<0)
 	zerostack(&undo);
     insertmacro(gcb, 1);
+    return 0;
 }
 
 /* scroll the window up || down */
 
-PROC
+void PROC
 scroll(bool down)
 {
     int i;
@@ -474,7 +476,7 @@ scroll(bool down)
     else {
 	curr = bseekeol(max(0,nextline(FALSE, curr, count)));
 	i = bseekeol(max(0,nextline(FALSE, ptop, count)));
-	if (i < ptop)
+	if (i < ptop) {
 	    if (canUPSCROLL)
 		scrollback(i);
 	    else {
@@ -482,6 +484,7 @@ scroll(bool down)
 		setend();
 		redisplay(TRUE);
 	    }
+	}
     }
     strput(CURon);
     setpos(skipws(curr));	/* initialize new position - first nonwhite */
@@ -509,7 +512,7 @@ editcore(void)
 	s_wrapped = 0;
 	ch = 0x7f & readchar();			/* get 7-bits of a char */
 	gcount();			/* ... a possible count */
-	switch (cmd = movemap[ch]) {
+	switch (cmd = movemap[(unsigned char)ch]) {
 	  case FILE_C:
 	    wr_stat();			/* write file stats */
 	    mvcur(yp, xp);

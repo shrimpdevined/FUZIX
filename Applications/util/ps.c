@@ -307,7 +307,7 @@ int show_process(struct p_tab *pp)
 		return compute_show_process(pp);
 }
 
-static const char *username(uid_t uid)
+static __attribute__((unused)) const char *username(uid_t uid)
 {
 	static char uname[6];
 	struct passwd *pwd = getpwuid(uid);

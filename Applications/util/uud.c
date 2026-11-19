@@ -290,7 +290,7 @@ void decode(void)
 	if (len == 0) continue;
 
 	/* Get the binary line length. */
-	n = trtbl[*buf];
+	n = trtbl[(unsigned char)*buf];
 	if (n >= 0)
 	    goto decod;
 
@@ -321,7 +321,7 @@ void decode(void)
 	/* Verify if asked for. */
 	if (debug) {
 	    for (len = 0, bp = buf; len < rlen; len++) {
-		if (trtbl[*bp] < 0) {
+		if (trtbl[(unsigned char)*bp] < 0) {
 		    printf("Non uuencoded char <%c>, line %d in file: %s\n",
 			   *bp, numl, ifname);
 		    printf("Bad line = %s\n", buf);
@@ -377,14 +377,14 @@ void decode(void)
 	len = n;
 	bp = &buf[1];
 	while (n > 0) {
-	    *(ut++) = trtbl[*bp] << 2 | trtbl[bp[1]] >> 4;
+	    *(ut++) = trtbl[(unsigned char)*bp] << 2 | trtbl[(unsigned char)bp[1]] >> 4;
 	    n--;
 	    if (n) {
-		*(ut++) = (trtbl[bp[1]] << 4) | (trtbl[bp[2]] >> 2);
+		*(ut++) = (trtbl[(unsigned char)bp[1]] << 4) | (trtbl[(unsigned char)bp[2]] >> 2);
 		n--;
 	    }
 	    if (n) {
-		*(ut++) = trtbl[bp[2]] << 6 | trtbl[bp[3]];
+		*(ut++) = trtbl[(unsigned char)bp[2]] << 6 | trtbl[(unsigned char)bp[3]];
 		n--;
 	    }
 	    bp += 4;

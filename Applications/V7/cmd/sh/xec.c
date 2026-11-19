@@ -33,7 +33,7 @@ int execute(TREPTR argt, int execflg, int *pf1, int *pf2)
 	if ((t = argt) && execbrk == 0) {
 		register int treeflgs;
 		int oldexit, type;
-		register char **com;
+		register char **com = 0;
 
 		treeflgs = t->tretyp;
 		type = treeflgs & COMMSK;
@@ -45,7 +45,7 @@ int execute(TREPTR argt, int execflg, int *pf1, int *pf2)
 		case TCOM:
 			{
 				STRING a1;
-				int argn, internal;
+				int argn, internal = 0;
 				ARGPTR schain = gchain;
 				IOPTR io = t->treio;
 				gchain = 0;

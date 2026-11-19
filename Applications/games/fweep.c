@@ -164,7 +164,7 @@ StackFrame *frameptr;
 int stackptr;
 int stackmax;
 uint16_t stream3addr[16];
-uint16_t *stream3ptr;
+int stream3idx;			/* -1 = closed, else index into stream3addr */
 boolean texting = 1;
 boolean window = 0;
 boolean buffering = 1;
@@ -678,10 +678,10 @@ void char_print(uint8_t zscii)
 	if (!zscii)
 		return;
 
-	if (stream3ptr != stream3addr - 1) {
-		uint16_t w = read16low(*stream3ptr);
-		write8(*stream3ptr + 2 + w, zscii);
-		write16(*stream3ptr, w + 1);
+	if (stream3idx != -1) {
+		uint16_t w = read16low(stream3addr[stream3idx]);
+		write8(stream3addr[stream3idx] + 2 + w, zscii);
+		write16(stream3addr[stream3idx], w + 1);
 		/* Report 8 pixels per char */
 		write16(0x30, w * 8);
 		return;
@@ -1459,8 +1459,8 @@ void switch_output(int st)
 		write8(0x11, read8low(0x11) | 1);
 		break;
 	case 3:
-		if (stream3ptr != stream3addr + 15) {
-			*++stream3ptr = inst_args[1];
+		if (stream3idx != 15) {
+			stream3addr[++stream3idx] = inst_args[1];
 			write16(inst_args[1], 0);
 		}
 		break;
@@ -1473,8 +1473,8 @@ void switch_output(int st)
 		write8(0x11, read8low(0x11) & ~1);
 		break;
 	case -3:
-		if (stream3ptr != stream3addr - 1)
-			stream3ptr--;
+		if (stream3idx != -1)
+			stream3idx--;
 		break;
 	case -4:
 		break;
@@ -2273,7 +2273,7 @@ int main(int argc, char **argv)
 	srand(getpid() ^ time(NULL));
 
 	/* cc65 isn't smart enough to do this at compile time */
-	stream3ptr = stream3addr - 1;
+	stream3idx = -1;
 
 	while(*++argv && *argv[0] == '-') {
 		switch(*argv[1]) {

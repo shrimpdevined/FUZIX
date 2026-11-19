@@ -9,6 +9,7 @@
 #include <pico/multicore.h>
 #include "core1.h"
 #include "devtty.h"
+#include "devlcd.h"
 
 uint8_t ttybuf[TTYSIZ * NUM_DEV_TTY];
 
@@ -74,69 +75,76 @@ void devtty_init(void)
 
     if (defconfig)
     {
+        /* The UART driver on this board is a stub, so USB is the only
+         * usable console.  Wait for USB only while a host is actually
+         * attached, so we capture every boot message; with no host we
+         * skip the wait entirely and boot fast. */
         absolute_time_t until = delayed_by_ms(get_absolute_time(), DEV_USB_DETECT_TIMEOUT);
-
-        int usb_detected = 0;
+        int usb_ready = 0;
         while (absolute_time_diff_us(get_absolute_time(), until) > 0)
         {
             if (usbconsole_is_available(1))
             {
-                usb_detected = 1;
+                usb_ready = 1;
                 break;
             }
         }
-
-        if (usb_detected)
+        if (usb_ready)
         {
-            devtty_defconfig(TTYDRV_USB, NUM_DEV_TTY_USB, 1);
-            devtty_defconfig(TTYDRV_UART, NUM_DEV_TTY_UART, 1 + NUM_DEV_TTY_USB);
+            /* Let core1 start draining the CDC TX ring before the first
+             * kprintf so early boot output is not dropped. */
             until = delayed_by_ms(get_absolute_time(), DEV_USB_INIT_TIMEOUT);
             while (absolute_time_diff_us(get_absolute_time(), until) > 0)
-            {
                 tight_loop_contents();
-            }
-            kprintf("devtty: %s as default tty\n", "usb");
         }
-        else
-        {
-            devtty_defconfig(TTYDRV_UART, NUM_DEV_TTY_UART, 1);
-            devtty_defconfig(TTYDRV_USB, NUM_DEV_TTY_USB, 1 + NUM_DEV_TTY_UART);
-            kprintf("devtty: %s as default tty\n", "uart");
-        }
+
+        devtty_defconfig(TTYDRV_USB, NUM_DEV_TTY_USB, 1);
+        devtty_defconfig(TTYDRV_UART, NUM_DEV_TTY_UART, 1 + NUM_DEV_TTY_USB);
         ttymap_count = NUM_DEV_TTY;
     }
 }
 
-/* Output for the system console (kprintf etc) */
+/* Output for the system console (kprintf etc).  Single dispatch path: all
+ * console bytes (kernel output and IRQ echoes) go through tty_putc().  The
+ * old code called vtoutput()+usbconsole_putc() from BOTH kputchar() and
+ * tty_putc(); because vtoutput() is slow and reentrant via vtpend, an IRQ
+ * echo could enqueue its byte to USB before an in-progress kernel byte,
+ * reordering output ("dNAND flash", stray 'd' before prompts). */
 void kputchar(uint_fast8_t c)
 {
-    /* If tty's were not properly initialized */
-    if (ttymap_count == 0)
-    {
-        if (c == '\n')
-            rawuart_putc(1, '\r');
-        rawuart_putc(1, c);
-    }
-    else
-    {
-        if (c == '\n')
-        {
-            while (tty_writeready(1) != TTY_READY_NOW)
-            {
-                tight_loop_contents();
-            }
-            tty_putc(1, '\r');
-        }
-        while (tty_writeready(1) != TTY_READY_NOW)
-        {
-            tight_loop_contents();
-        }
-        tty_putc(1, c);
-    }
+    /* Kernel console output is non-blocking: usbconsole_putc() enqueues into
+     * a ring and drops+counters if full.  Do NOT wait for TX room here —
+     * kputchar is called from boot and fault/panic contexts with interrupts
+     * possibly disabled, and a host that enumerated but is not draining CDC
+     * would make an unbounded wait hang the kernel.  Occasional dropped bytes
+     * (garbled boot text) are preferable to a deadlock. */
+    if (c == '\n')
+        tty_putc(1, '\r');
+    tty_putc(1, c);
 }
 
 void tty_putc(uint_fast8_t minor, uint_fast8_t c)
 {
+    if (minor == 1) {
+        /* USB first: fast, ordered enqueue.  LCD second: slow, visual only.
+         *
+         * No LCD/VT work may sit on the serial path: one character costs
+         * several SPI transactions and several cell redraws, so rendering
+         * inline made an 8 KB cat take 30 seconds.  The serial byte and
+         * its deferred VT byte are enqueued here in the same order, so
+         * the display mirrors the line exactly; the queue is drained from
+         * idle context (plt_idle_hook). */
+        /* Make the two enqueues atomic with respect to the timer IRQ, which
+         * also calls tty_putc() (echo).  Without this, an IRQ echo can land
+         * between them and the serial/LCD streams get different byte orders.
+         * vtdefer()/usbconsole_putc() take nested di() safely (PRIMASK is
+         * saved/restored), so no cross-core lock is introduced. */
+        irqflags_t irq = di();
+        usbconsole_putc(1, c);
+        vtdefer(c);
+        irqrestore(irq);
+        return;
+    }
     struct ttymap *map = &ttymap[minor];
     if (map->tty == 0)
         return;
@@ -146,6 +154,14 @@ void tty_putc(uint_fast8_t minor, uint_fast8_t c)
 
 ttyready_t tty_writeready(uint_fast8_t minor)
 {
+    if (minor == 1) {
+        /* Honest backpressure for the USB console.  With no host attached
+         * nothing will ever drain the ring, so report ready (and let the
+         * byte be dropped) rather than blocking the system forever. */
+        if (!usbconsole_is_available(1))
+            return TTY_READY_NOW;
+        return usbconsole_ready(1);
+    }
     struct ttymap *map = &ttymap[minor];
     if (map->tty == 0)
         return TTY_READY_LATER;
@@ -202,5 +218,17 @@ void tty_interrupt(void)
             }
         }
     }
+}
+
+/* Called from plt_idle() with interrupts enabled and no runnable process.
+ * This is the safe point to do the work that must stay out of interrupt
+ * context: deferred VT output (input echo) and repainting LCD rows that were
+ * skipped because the shared SPI bus was busy with the SD card. */
+void plt_idle_hook(void)
+{
+    if (udata.u_ininterrupt)
+        return;
+    vt_task();
+    lcd_task();
 }
 /* vim: sw=4 ts=4 et: */

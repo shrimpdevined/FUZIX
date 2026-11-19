@@ -188,13 +188,13 @@ void cmpline(char *pend)
 			pchar++;
 	while (pchar < pend) {
 		/* eliminate white space */
-		if (isabreak(*pchar++))
+		if (isabreak((unsigned char)*pchar++))
 			continue;
 		pstrt = --pchar;
 
 		flag = 1;
 		while (flag) {
-			if (isabreak(*pchar)) {
+			if (isabreak((unsigned char)*pchar)) {
 				hp = &hasht[hash(pstrt, pchar)];
 				pchar--;
 				while ((cp = *hp++) != 0) {
@@ -544,4 +544,5 @@ int main(int argc, const char *argv[])
 
 	getsort();
 	onintr(0);
+	return 0;
 }

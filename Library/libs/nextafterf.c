@@ -30,10 +30,12 @@ float nextafterf(float x, float y)
 	/* raise overflow if ux.value is infinite and x is finite */
 	if (e == 0x7f800000) {
 		volatile float dummy = x + x;
+		(void)dummy;
 	}
 	/* raise underflow if ux.value is subnormal or zero */
 	if (e == 0) {
 		volatile float dummy = x*x + ux.value*ux.value;
+		(void)dummy;
 	}
 	return ux.value;
 }

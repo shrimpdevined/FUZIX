@@ -44,6 +44,8 @@ int stamp(char *s, char *template)
 #else
     char *p;
 
+    (void)p;
+
 #if UNIX
     strcpy(s, "/tmp/");
 #endif
@@ -73,6 +75,7 @@ int stamp(char *s, char *template)
     strcat(s, template);
     numtoa(&s[strlen(s)], getpid());
 #endif
+    return 0;
 }
 
 #if RMX|UNIX
@@ -202,7 +205,7 @@ void initialize(int count, char **args)
     {	char *p;
 	extern char *execstr;	/* [exec.c] */
 
-	if (p=getenv("LVRC")) {
+	if ((p=getenv("LVRC"))) {
 	    strcpy(instring,p);
 	    execstr = instring;
 	    setcmd();
@@ -271,7 +274,7 @@ long _STKSIZ = 4096;
 long _BLKSIZ = 4096;
 #endif
 
-void main(int argc, char *argv[])
+int main(int argc, char *argv[])
 {
     initialize(argc, argv);
 

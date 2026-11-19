@@ -397,7 +397,7 @@ static void align_cb(cdefn_t* w);
 #define FL__MASK     0x3f
 
 #define CONST_STRING(n, v) \
-	static const char n[sizeof(v)-1] = v
+	static const char n[sizeof(v)-1] __attribute__((unused)) = v
 
 struct fstring
 {
@@ -842,8 +842,8 @@ static void codeword(cdefn_t* w)
 
 static void dataword(cdefn_t* w) { dpush((cell_t) &w->payload[0]); }
 static void rvarword(cdefn_t* w) { dpush((cell_t) w->payload[0]); }
-static void r2varword(cdefn_t* w) { dpush((cell_t) w->payload[0]); dpush((cell_t) w->payload[1]); }
-static void wvarword(defn_t* w) { w->payload[0] = (void*) dpop(); }
+static void __attribute__((unused)) r2varword(cdefn_t* w) { dpush((cell_t) w->payload[0]); dpush((cell_t) w->payload[1]); }
+static void __attribute__((unused)) wvarword(defn_t* w) { w->payload[0] = (void*) dpop(); }
 static void rivarword(cdefn_t* w) { dpush(*(cell_t*) w->payload[0]); }
 static void wivarword(cdefn_t* w) { *(cell_t*)(w->payload[0]) = dpop(); }
 
@@ -1155,13 +1155,13 @@ static void peekcon_cb(cdefn_t* w)    { dpush(*daddr((cell_t) *w->payload)); }
 static void peekcon2_cb(cdefn_t* w)   { peekcon_cb(w); peekcon_cb(w); }
 static void pick_cb(cdefn_t* w)       { dpush(*daddr(dpop())); }
 static void pling_cb(cdefn_t* w)      { cell_t* p = (cell_t*)dpop(); *p = dpop(); }
-static void pokecon_cb(cdefn_t* w)    { cell_t v = dpop(); *daddr((cell_t) *w->payload) = v; }
+static void __attribute__((unused)) pokecon_cb(cdefn_t* w)    { cell_t v = dpop(); *daddr((cell_t) *w->payload) = v; }
 static void q_dup_cb(cdefn_t* w)      { cell_t a = *daddr(0); if (a) dpush(a); }
 static void r_arrow_cb(cdefn_t* w)    { dpush(rpop()); }
 static void radjust_cb(cdefn_t* w)    { radjust((cell_t) *w->payload); }
-static void rpeekcon_cb(cdefn_t* w)   { dpush(*raddr((cell_t) *w->payload)); }
+static void __attribute__((unused)) rpeekcon_cb(cdefn_t* w)   { dpush(*raddr((cell_t) *w->payload)); }
 static void rpick_cb(cdefn_t* w)      { dpush(*raddr(dpop())); }
-static void rpokecon_cb(cdefn_t* w)   { cell_t v = dpop(); *raddr((cell_t) *w->payload) = v; }
+static void __attribute__((unused)) rpokecon_cb(cdefn_t* w)   { cell_t v = dpop(); *raddr((cell_t) *w->payload) = v; }
 static void rshift_cb(cdefn_t* w)     { cell_t u = dpop(); ucell_t a = dpop(); dpush(a >> u); }
 static void rsshift_cb(cdefn_t* w)    { dpush(dpop() >> 1); }
 static void source_cb(cdefn_t* w)     { dpush((cell_t) in_base); dpush(in_len); }
@@ -2288,7 +2288,7 @@ COM( arg_word, codeword, "ARG", &shift_2d_args_word, (void*)&argv_word, (void*)&
 //   THEN
 COM( next_2d_arg_word, codeword, "NEXT-ARG", &arg_word, (void*)&argc_word, (void*)&at_word, (void*)&branch0_word, (void*)(&next_2d_arg_word.payload[0] + 9), (void*)&zero_word, (void*)&arg_word, (void*)&shift_2d_args_word, (void*)&branch_word, (void*)(&next_2d_arg_word.payload[0] + 11), (void*)&zero_word, (void*)&zero_word, (void*)&exit_word )
 
-static cdefn_t* last = (defn_t*) &next_2d_arg_word; //@E
+static cdefn_t* __attribute__((unused)) last = (defn_t*) &next_2d_arg_word; //@E
 static defn_t* latest = (defn_t*) &next_2d_arg_word; //@E
 
 int main(int argc, const char* argv[])

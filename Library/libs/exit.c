@@ -12,4 +12,5 @@ void exit(int status)
 {
   __do_exit(status);
   _exit(status);
+  for(;;); /* not reached: _exit never returns */
 }

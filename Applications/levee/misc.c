@@ -225,8 +225,8 @@ beeper(void)
 #endif /*ST*/
 
 
-PROC
-error()
+void PROC
+error(void)
 {
     indirect = FALSE;
     macro = -1;
@@ -243,7 +243,7 @@ error()
 
 
 /* the dirty work to start up a macro */
-PROC insertmacro(char *cmdstr, int count)
+void PROC insertmacro(char *cmdstr, int count)
 {
     if (macro >= NMACROS)
 	error();
@@ -272,11 +272,12 @@ void fixmarkers(int base, int offset)
     char c;
 
     for (c = 0;c<'z'-'`';c++)
-	if (contexts[c] > base)
-	    if (contexts[c]+offset < base || contexts[c]+offset >= bufmax)
-		contexts[c] = -1;
+	if (contexts[(unsigned char)c] > base) {
+	    if (contexts[(unsigned char)c]+offset < base || contexts[(unsigned char)c]+offset >= bufmax)
+		contexts[(unsigned char)c] = -1;
 	    else
-		contexts[c] += offset;
+		contexts[(unsigned char)c] += offset;
+	}
 } /* fixmarkers */
 
 
@@ -346,7 +347,7 @@ line(char *s, int start, int endd, int *size)
     tabptr = 0;
     while (1) {
 	c = readchar();
-	if (movemap[c] == INSMACRO)	/* map!ped macro */
+	if (movemap[(unsigned char)c] == INSMACRO)	/* map!ped macro */
 	    insertmacro(mbuffer[lookup(c)].m_text, 1);
 	else if (c == DW) {
 	    while (!wc(s[ip-1]) && ip > start)

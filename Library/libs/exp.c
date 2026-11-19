@@ -123,6 +123,7 @@ double exp(double x)
 		volatile float dummy;
 		/* inexact if x!=0 */
 		dummy = 0x1p1023 + x;	/* ensure we evaluate and maybe fault */
+		(void)dummy;
 		return 1 + x;
 	}
 

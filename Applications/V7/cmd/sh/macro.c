@@ -20,7 +20,7 @@ static int getch(char);
 static void comsubst(void);
 static void flush(int);
 
-static char *copyto(char endch)
+static void copyto(char endch)
 {
 	register CHAR c;
 
@@ -32,7 +32,7 @@ static char *copyto(char endch)
 		error(badsub);
 }
 
-static int skipto(char endch)
+static void skipto(char endch)
 {
 	/* skip chars up to } */
 	register char c;
@@ -73,7 +73,7 @@ retry:
 			int dolg = 0;
 			BOOL bra;
 			register const char *argp;
-			register const char *v;
+			register const char *v = 0;
 			CHAR idb[2];
 			char *id = idb;
 

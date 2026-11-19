@@ -35,5 +35,13 @@ int uname(struct utsname *utsbuf)
 			bytes--;
 		} while(*p++ && bytes > 0);
 	}
+
+	/*
+	 * POSIX: nodename is the name of this node.  FUZIX keeps the
+	 * host name in /etc/hostname, which is what gethostname() reads.
+	 */
+	if (gethostname(utsbuf->nodename, sizeof(utsbuf->nodename)) < 0)
+		utsbuf->nodename[0] = '\0';
+
 	return 0;
 }

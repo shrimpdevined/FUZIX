@@ -81,8 +81,19 @@ static signed char cursorx;
 static signed char cursory = VT_INITIAL_LINE;
 static signed char ncursory;
 static uint8_t cursorhide;
-static uint8_t vtpend;
 static uint8_t vtbusy;
+
+/* Deferred output queue.  Interrupt context (input echo, kernel messages)
+ * only enqueues a byte; the slow VT/LCD rendering happens later in thread
+ * or idle context.  The old single-byte vtpend dropped every echo but one
+ * when several arrived before the renderer got scheduled. */
+#define VT_DEFER_SHIFT 12
+#define VT_DEFER_LEN (1u << VT_DEFER_SHIFT)
+#define VT_DEFER_MASK (VT_DEFER_LEN - 1)
+static uint8_t vtd_buf[VT_DEFER_LEN];
+static volatile uint16_t vtd_head;
+static volatile uint16_t vtd_tail;
+static volatile uint32_t vtd_dropped;
 
 static void cursor_fix(void)
 {
@@ -98,15 +109,16 @@ static void cursor_fix(void)
 	}
 	if (cursory > VT_BOTTOM) {
 		scroll_up();
-		clear_lines(VT_BOTTOM, 1);
-		cursory--;
+		/* After scrolling, the cursor belongs on the last line, not
+		 * back at the top.  Otherwise new text overwrites screen row 0. */
+		cursory = VT_BOTTOM;
 	}
 }
 
 static void charout(unsigned char c)
 {
-	/* Fast path printable symbols */
-	if (c <= 0x1b) {
+	/* Fast path control characters */
+	if (c < 0x20) {
 		if (c == 7) {
 			do_beep();
 			return;
@@ -133,6 +145,10 @@ static void charout(unsigned char c)
 			vtmode = 1;
 			return;
 		}
+		/* Ignore other control bytes (XMODEM ACK/NAK/CAN etc.) instead of
+		 * painting them as blank cells; they still go out the serial line
+		 * untouched, they just have no business being drawn on the LCD. */
+		return;
 	}
 	plot_char(cursory, cursorx, c);
 	cursorx++;
@@ -222,33 +238,67 @@ void vt_cursor_on(void)
 		cursor_on(cursory, cursorx);
 }
 
+/* Queue a byte for rendering in thread/idle context.  Safe from IRQ. */
+void vtdefer(unsigned char c)
+{
+	irqflags_t irq = di();
+	if ((uint16_t)(vtd_head - vtd_tail) < VT_DEFER_LEN) {
+		vtd_buf[vtd_head & VT_DEFER_MASK] = c;
+		vtd_head++;
+	} else
+		vtd_dropped++;
+	irqrestore(irq);
+}
+
+/* Drop queued text, e.g. when switching the LCD into graphics mode. */
+void vt_purge(void)
+{
+	irqflags_t irq = di();
+	vtd_tail = vtd_head;
+	irqrestore(irq);
+}
+
+/* Render queued bytes.  Bounded per call so an idle hook can make progress
+ * without monopolising the CPU; callers repeat until the queue is empty. */
+void vt_task(void)
+{
+	unsigned int n = 0;
+	while (n++ < 32) {
+		unsigned char c;
+		irqflags_t irq = di();
+		if (vtd_tail == vtd_head) {
+			irqrestore(irq);
+			break;
+		}
+		c = vtd_buf[vtd_tail & VT_DEFER_MASK];
+		vtd_tail++;
+		irqrestore(irq);
+		vtoutput(&c, 1);
+	}
+}
+
 /* VT52 alike functionality */
 void vtoutput(unsigned char *p, unsigned int len)
 {
 	irqflags_t irq;
-	uint8_t cq;
 
-	/* We can get re-entry into the vt code from tty echo. This is one of
-	   the few places in Fuzix interrupts bite us this way.
-
-	   If we have a clash then we queue the echoed symbol and print it
-	   in the thread of execution it interrupted. We only queue one so
-	   in theory might lose the odd echo - but the same occurs with real
-	   uarts. If anyone actually has printing code slow enough this is a
-	   problem then vtpend can turn into a small queue */
+	/* Some other path can still re-enter us before the deferred queue is
+	 * drained.  Queue the byte instead of overwriting a single pending
+	 * slot, so no echo is lost. */
 	irq = di();
 	if (vtbusy) {
-		vtpend = *p;
+		if ((uint16_t)(vtd_head - vtd_tail) < VT_DEFER_LEN) {
+			vtd_buf[vtd_head & VT_DEFER_MASK] = *p;
+			vtd_head++;
+		} else
+			vtd_dropped++;
 		irqrestore(irq);
 		return;
 	}
 	vtbusy = 1;
 	irqrestore(irq);
 	vt_cursor_off();
-	/* FIXME: do we ever get called with len > 1, if not we could strip
-	   this right down */
-	do {
-		while (len--) {
+	while (len--) {
 			unsigned char c = *p++;
 			if (vtmode == 0) {
 				charout(c);
@@ -285,15 +335,7 @@ void vtoutput(unsigned char *p, unsigned int len)
 				vtattr_notify();
 				continue;
 			}
-		}
-		/* Copy the pending symbol and clear the buffer */
-		cq = vtpend;
-		vtpend = 0;
-		/* Any loops print the single byte in cq */
-		p = &cq;
-		len = 1;
-		/* Until we don't get interrupted */
-	} while(cq);
+	}
 	vt_cursor_on();
 	vtbusy = 0;
 }

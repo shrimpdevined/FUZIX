@@ -301,14 +301,20 @@ arg_t _fcntl(void)
 		if (data & O_CLOEXEC)
 			udata.u_cloexec |= (1 << fd);
 		else
-			udata.u_cloexec &= (1 << fd);
+			/* Clear only this fd's bit: the missing ~ used to wipe the
+			 * CLOEXEC flags of every other open descriptor. */
+			udata.u_cloexec &= ~(1 << fd);
 		return 0;
 	case F_DUPFD:
 		if ((newd = uf_alloc_n(data)) == -1)
 			return (-1);
 		udata.u_files[newd] = udata.u_files[fd];
 		++of_tab[udata.u_files[fd]].o_refs;
-		return 0;
+		/* POSIX: F_DUPFD clears FD_CLOEXEC on the new descriptor (the
+		 * source keeps its flag).  The old code returned 0, orphaning
+		 * newd's OFT reference. */
+		udata.u_cloexec &= ~(1 << newd);
+		return newd;
 	default:
 		udata.u_error = EINVAL;
 		return -1;
@@ -472,9 +478,8 @@ arg_t _ftruncate(void)
 
 	if (n == ino->c_node.i_size)
 		return 0;
-	if (n < ino->c_node.i_size)
-		f_trunc_blocks(ino, BLOCK(n + BLKSIZE - 1));
-	ino->c_node.i_size = n;
+	if (f_trunc_to(ino, n))
+		return -1;
 	setftime(ino, M_TIME | C_TIME);
 	wr_inode(ino);
 	return 0;

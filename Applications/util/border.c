@@ -122,4 +122,5 @@ int main(int argc, char *argv[])
     if (strcmp(cmd, "paper") == 0)
         return colour_or_vtcode(n, VTPAPER, "\033c");
     error("unknown command name");
+    return 0;
 }

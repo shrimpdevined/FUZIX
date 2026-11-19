@@ -440,4 +440,5 @@ int main(void) {
 
   game_end(cty);
   free_city_st(cty);
+  return 0;
 }

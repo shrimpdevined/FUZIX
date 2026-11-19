@@ -87,6 +87,13 @@ void flash_dev_init(void)
         nand.num_blocks * 4, lba / 2, XIP_NOCACHE_NOALLOC_BASE + FLASH_OFFSET);
 	
 	blk->transfer = transfer_cb;
+	/* NOTE: blk->flush = flush_cb (dhara_map_sync) was deliberately removed.
+	 * d_flush() is called from bdput() ONCE PER DIRTY BUFFER, so wiring a full
+	 * dhara GC checkpoint here made every sync()/mount during boot run up to
+	 * NBUFS garbage collections — init stalled for many seconds.  dhara already
+	 * journals its metadata and rolls back safely on unclean shutdown, so a
+	 * full GC checkpoint on every OS sync is unnecessary; leave flush unset
+	 * (d_flush becomes a cheap no-op) to restore fast boot. */
     #ifdef CONFIG_TRIM
         blk->trim = trim_cb;
     #endif

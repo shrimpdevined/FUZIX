@@ -172,7 +172,7 @@ char *make(const char *v)
 NAMPTR lookup(register char *nam)
 {
 	register NAMPTR nscan = namep;
-	register NAMPTR *prev;
+	register NAMPTR *prev = 0;
 	int LR;
 
 	if (!chkid(nam))

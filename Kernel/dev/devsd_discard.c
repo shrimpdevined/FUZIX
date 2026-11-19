@@ -35,6 +35,22 @@ void devsd_init(void)
         sd_init_drive(i);
 }
 
+/* Switch an SDHC/SDXC card to high-speed mode with CMD6 and raise the bus
+ * clock.  Called after CSD read at init, and again after any retry re-init
+ * (sd_spi_init() drops the clock back to 250 kHz). */
+void sd_set_highspeed(uint_fast8_t card_type)
+{
+    uint_fast8_t n;
+    if (card_type & CT_SD2) {
+        /* bit 31 = 1 selects SWITCH; group 1 function 1 = high speed */
+        if (sd_send_command(CMD6, 0x80FFFFF1) == 0)
+            for (n = 0; n < 64; n++)   /* clock out switch-status block */
+                sd_spi_receive_byte();
+        sd_spi_release();
+    }
+    sd_spi_clock(true);   /* configured fast clock (default 25 MHz) */
+}
+
 void sd_init_drive(uint8_t drive)
 {
     blkdev_t *blk;
@@ -62,9 +78,15 @@ void sd_init_drive(uint8_t drive)
         for(n=0; n<16; n++)
             csd[n] = sd_spi_receive_byte();
         if ((csd[0] >> 6) == 1) {
-            /* SDC ver 2.00 */
-            blk->drive_lba_count = ((uint32_t)csd[9] 
-                                   + (uint32_t)((unsigned int)csd[8] << 8) + 1) << 10;
+            /* SDC ver 2.00 (SDHC/SDXC): C_SIZE is a 22-bit field at CSD bits
+             * 69..48 — csd[7] bits 5..0, all of csd[8], all of csd[9].
+             * Capacity in 512-byte blocks is (C_SIZE + 1) << 10.  The old
+             * code used only csd[8..9] (16 bits), truncating cards above
+             * ~32 GB and misreporting SDXC capacity.  Read the full field. */
+            uint32_t csize = ((uint32_t)(csd[7] & 0x3F) << 16) |
+                             ((uint32_t)csd[8] << 8) |
+                             (uint32_t)csd[9];
+            blk->drive_lba_count = (csize + 1) << 10;
         } else {
             /* SDC ver 1.XX or MMC*/
             n = (csd[5] & 15) + ((csd[10] & 128) >> 7) + ((csd[9] & 3) << 1) + 2;
@@ -74,6 +96,10 @@ void sd_init_drive(uint8_t drive)
         }
     }
     sd_spi_release();
+
+    /* Now that the CSD has been read at the safe init clock, switch SDHC/
+     * SDXC cards to high-speed mode and raise the clock. */
+    sd_set_highspeed(card_type);
 
     blkdev_scan(blk, 0);
 }
@@ -136,7 +162,9 @@ int sd_spi_init(void)
     sd_spi_release();
 
     if (card_type) {
-        sd_spi_clock(true); /* up to 20MHz should be OK */
+        /* Keep the init clock slow here.  High-speed switching (CMD6) and
+         * the clock increase are done in sd_init_drive() AFTER the CSD is
+         * read, so a card that ignores CMD6 still reports capacity right. */
         return card_type;
     }
 

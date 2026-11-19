@@ -39,5 +39,5 @@ int PROC addfile(FILE *f, int start, int endd, int *size)
 
 bool PROC putfile(FILE *f, int start, int endd)
 {
-    write(fileno(f), core+start, endd-start);
+    return write(fileno(f), core+start, endd-start);
 }

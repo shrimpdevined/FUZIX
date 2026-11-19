@@ -1,0 +1,25 @@
+umask 022
+fsck -a /
+# No battery-backed RTC on this board: start at Y2K and count up.
+setdate -y
+remount -n / rw
+prtroot >/etc/mtab
+
+# Check and mount the separate internal user filesystem (hda2) before
+# firstboot creates the account home.  mount -a also picks up the SD card
+# at /mnt/sd when one is present.
+fsck -a /dev/hda2 >/dev/null 2>&1
+mount -a >/dev/null 2>&1
+
+# Enable swap on hda3 (256 KB) so the compiler can run under memory pressure.
+/bin/swapon /dev/hda3 512 >/dev/null 2>&1
+
+# sudo authentication timestamps are only valid for a running system;
+# never let them survive a reboot.
+rm /var/run/sudo/* >/dev/null 2>&1
+
+# There is no usable account in a fresh image (root stays locked).  Run
+# first-boot provisioning here, before getty starts accepting logins.
+/bin/firstboot
+
+>/var/run/utmp

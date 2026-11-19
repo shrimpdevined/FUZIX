@@ -312,7 +312,7 @@ void merge(int m1, int m2)
 			       d2->new.from, d2->new.to);
 		}
 /*			first file is different from others*/
-		if (!t2 || t1 && d1->new.to < d2->new.from) {
+		if (!t2 || (t1 && d1->new.to < d2->new.from)) {
 /*			stuff peculiar to 1st file */
 			if (eflag == 0) {
 				separate("1");
@@ -324,7 +324,7 @@ void merge(int m1, int m2)
 			continue;
 		}
 /*			second file is different from others*/
-		if (!t1 || t2 && d2->new.to < d1->new.from) {
+		if (!t1 || (t2 && d2->new.to < d1->new.from)) {
 			if (eflag == 0) {
 				separate("2");
 				keep(1, &d2->old, &d2->new);
@@ -418,4 +418,5 @@ int main(int argc, char *argv[])
 			exit(1);
 		}
 	merge(m, n);
+	return 0;
 }

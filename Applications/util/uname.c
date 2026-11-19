@@ -1,6 +1,6 @@
 /*
  * Trivial implementation of uname command
- *  -n option is not supported, no nodename from struct utsname
+ *  -n reports the node name from /etc/hostname via uname(2)
  *
  * Copyright (C) 2016 David Flamand, All rights reserved.
  *
@@ -28,7 +28,7 @@
 #include <unistd.h>
 
 int fd;
-char *argv0, aflag, mflag, rflag, sflag, vflag, next;
+char *argv0, aflag, mflag, nflag, rflag, sflag, vflag, next;
 
 void error(void)
 {
@@ -54,7 +54,7 @@ void usage(void)
 	fd = STDERR_FILENO;
 	putstr("usage: ");
 	putstr(argv0);
-	putstr(" [-amrsv]\n");
+	putstr(" [-amnrsv]\n");
 	exit(1);
 }
 
@@ -83,6 +83,7 @@ int main(int argc, char *argv[])
 					switch (*p) {
 					case 'a': aflag = 1; break;
 					case 'm': mflag = 1; break;
+					case 'n': nflag = 1; break;
 					case 'r': rflag = 1; break;
 					case 's': sflag = 1; break;
 					case 'v': vflag = 1; break;
@@ -98,14 +99,17 @@ int main(int argc, char *argv[])
 	if (uname(&un) != 0)
 		error();
 
-	if (!mflag && !rflag && !vflag)
+	if (!mflag && !nflag && !rflag && !vflag)
 		sflag = 1;
 
 	if (aflag)
-		mflag = rflag = sflag = vflag = 1;
+		mflag = nflag = rflag = sflag = vflag = 1;
 
 	if (sflag)
 		print(un.sysname);
+
+	if (nflag)
+		print(un.nodename);
 
 	if (rflag)
 		print(un.release);
