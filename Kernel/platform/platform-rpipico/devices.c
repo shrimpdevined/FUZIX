@@ -16,6 +16,10 @@
 #include "devkb.h"
 #include "devtouch.h"
 
+/* Set by rawflash.c while core0 parks core1 for a flash erase/program.
+ * See the core1-wedge check in timer_tick_cb (MASTER_PLAN S1). */
+extern volatile uint8_t flash_lockout_active;
+
 
 struct devsw dev_tab[] =  /* The device driver switch table */
 {
@@ -95,17 +99,29 @@ static void timer_tick_cb(unsigned alarm)
     watchdog_update();
 
     /* Core1 owns TinyUSB (the only console).  If its heartbeat stops for
-     * >2 s while core0 is alive, core1 is wedged (e.g. parked in a lockout
-     * or faulted during XIP-off flash) — the "enumerated but mute" failure.
-     * A full watchdog reset is the only reliable recovery: core1 keeps the
-     * USB stack alive and cannot be restarted independently. */
+     * >2 s while core0 is alive, core1 is wedged (e.g. faulted during XIP-off
+     * flash) — the "enumerated but mute" failure.  A full watchdog reset is
+     * the only reliable recovery: core1 keeps the USB stack alive and cannot
+     * be restarted independently.
+     *
+     * BUT: a heartbeat gap during a legitimate multicore lockout (flash
+     * erase/program, Dhara GC, swap TRIM) is EXPECTED — core1 is parked in the
+     * lockout handler, not wedged.  Counting that gap caused false full-chip
+     * reboots under compiler load (MASTER_PLAN S1).  Suppress the stale
+     * counter while rawflash holds core1, and reset it when lockout ends. */
     {
         static uint32_t last_hb;
         static uint32_t stale_ticks;
-        if (core1_heartbeat != last_hb) {
+        if (flash_lockout_active) {
+            /* Legitimate lockout: do not accumulate wedge evidence. */
             last_hb = core1_heartbeat;
             stale_ticks = 0;
-        } else if (++stale_ticks >= 2 * TICKSPERSEC) {
+        } else if (core1_heartbeat != last_hb) {
+            last_hb = core1_heartbeat;
+            stale_ticks = 0;
+        } else if (++stale_ticks >= 4 * TICKSPERSEC) {
+            /* 4 s of real inactivity outside lockout (raised from 2 s) —
+             * require a sustained stall before the drastic whole-chip reset. */
             watchdog_reboot(0, 0, 0);
         }
     }

@@ -19,6 +19,14 @@
  * sequence).  Only the lockout START is time-bounded; END does not wait. */
 #define FLASH_LOCKOUT_TIMEOUT_US 200000UL   /* 200 ms */
 
+/* Set while core0 holds core1 in the multicore lockout for a flash
+ * erase/program.  Core1's heartbeat stops during lockout, so the tick's
+ * core1-wedge detector (devices.c) must not count that gap as a wedge —
+ * otherwise legitimate flash/GC/TRIM work triggers a false watchdog reboot
+ * under compiler load (MASTER_PLAN S1).  Volatile: written by core0, read
+ * by core0's tick, no cross-core ordering needed. */
+volatile uint8_t flash_lockout_active;
+
 int dhara_nand_erase(const struct dhara_nand *n, dhara_block_t b,
                      dhara_error_t *err)
 {
@@ -31,12 +39,14 @@ int dhara_nand_erase(const struct dhara_nand *n, dhara_block_t b,
         if (err) *err = DHARA_E_TOO_BAD;
         return -1;
     }
+    flash_lockout_active = 1;
     {
         irqflags_t f = di();
         flash_range_erase(FLASH_OFFSET + ((uint64_t)b * 4096), 4096);
         irqrestore(f);
     }
     multicore_lockout_end_blocking();
+    flash_lockout_active = 0;
     if (err) *err = DHARA_E_NONE;
     return 0;
 }
@@ -49,12 +59,14 @@ int dhara_nand_prog(const struct dhara_nand *n, dhara_page_t p,
         if (err) *err = DHARA_E_TOO_BAD;
         return -1;
     }
+    flash_lockout_active = 1;
     {
         irqflags_t f = di();
         flash_range_program(FLASH_OFFSET + ((uint64_t)p * 512), data, 512);
         irqrestore(f);
     }
     multicore_lockout_end_blocking();
+    flash_lockout_active = 0;
     if (err) *err = DHARA_E_NONE;
     return 0;
 }
