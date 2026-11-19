@@ -122,7 +122,7 @@ void tty_flushinput(uint_fast8_t minor)
 	usbconsole_flushinput((uint8_t)minor);
 }
 
-extern void usbconsole_flushinput(uint8_t usb_num)
+void usbconsole_flushinput(uint8_t usb_num)
 {
 	struct console_t *c = console_get(usb_num);
 	uint8_t b;
@@ -166,7 +166,7 @@ int usbconsole_getc(uint8_t usb_num)
 	return c;
 }
 
-extern ttyready_t usbconsole_ready(uint8_t usb_num)
+ttyready_t usbconsole_ready(uint8_t usb_num)
 {
 	struct console_t *ct = console_get(usb_num);
 
@@ -177,21 +177,12 @@ extern ttyready_t usbconsole_ready(uint8_t usb_num)
 	return TTY_READY_LATER;
 }
 
-extern uint32_t usbconsole_tx_space(uint8_t usb_num)
-{
-	struct console_t *ct = console_get(usb_num);
-
-	if (ct == NULL)
-		return 0;
-	return CONFIG_CONSOLE_BUF_LEN - console_buf_count(&ct->wbuf);
-}
-
-extern bool usbconsole_is_available(uint8_t usb_num)
+bool usbconsole_is_available(uint8_t usb_num)
 {
 	return usb_host_connected && usb_num != 0 && usb_num <= NUM_DEV_TTY_USB;
 }
 
-extern void usbconsole_putc(uint8_t usb_num, uint8_t c)
+void usbconsole_putc(uint8_t usb_num, uint8_t c)
 {
 	struct console_t *ct = console_get(usb_num);
 
@@ -201,7 +192,7 @@ extern void usbconsole_putc(uint8_t usb_num, uint8_t c)
 		usbconsole_tx_dropped++;
 }
 
-extern void usbconsole_sleeping(uint8_t usb_num)
+void usbconsole_sleeping(uint8_t usb_num)
 {
 	struct console_t *ct = console_get(usb_num);
 
