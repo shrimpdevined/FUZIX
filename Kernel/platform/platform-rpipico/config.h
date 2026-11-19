@@ -45,10 +45,11 @@
 
 /* We have a GPIO interface */
 #define CONFIG_DEV_GPIO
-/* I2C CardKB keypad on GPIO0/1 (I2C0, addr 0x5F).  A runtime presence probe
- * in devkb.c ensures nothing is injected unless a device actually ACKs, so
- * there are no phantom keystrokes when no keypad is fitted. */
-#define CONFIG_I2C_KEYBOARD
+/* I2C CardKB keypad on GPIO0/1 (I2C0, addr 0x5F).  DISABLED pending root-cause
+ * of random boot hangs: devkb_poll() does a blocking I2C read from the 200Hz
+ * timer IRQ with IRQs off, which can starve the alarm re-arm / watchdog feed.
+ * Re-enable once the probe is moved out of IRQ context. */
+#undef CONFIG_I2C_KEYBOARD
 /* Enable to make ^Z dump the inode table for debug */
 #undef CONFIG_IDUMP
 /* Enable to make ^A drop back into the monitor */
@@ -162,8 +163,8 @@ extern uint8_t progbase[USERMEM];
  * Give each tty a full 512-byte queue; the extra 6*(512-132) bytes fit
  * comfortably in the RP2040's SRAM. */
 #define TTYSIZ 512
-#define DEV_USB_DETECT_TIMEOUT 2000 /* (ms) wait for USB host enumeration */
-#define DEV_USB_INIT_TIMEOUT 200 /* (ms) allow CDC to settle before messages */
+/* USB console: no boot-time host-detect wait — core1/TinyUSB enumerate the
+ * CDC asynchronously and the TX ring buffers early output. */
 
 #define TTYDEV   BOOT_TTY /* Device used by kernel for messages, panics */
 #define NBUFS    20       /* Number of block buffers */

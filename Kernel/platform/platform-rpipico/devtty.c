@@ -75,29 +75,11 @@ void devtty_init(void)
 
     if (defconfig)
     {
-        /* The UART driver on this board is a stub, so USB is the only
-         * usable console.  Wait for USB only while a host is actually
-         * attached, so we capture every boot message; with no host we
-         * skip the wait entirely and boot fast. */
-        absolute_time_t until = delayed_by_ms(get_absolute_time(), DEV_USB_DETECT_TIMEOUT);
-        int usb_ready = 0;
-        while (absolute_time_diff_us(get_absolute_time(), until) > 0)
-        {
-            if (usbconsole_is_available(1))
-            {
-                usb_ready = 1;
-                break;
-            }
-        }
-        if (usb_ready)
-        {
-            /* Let core1 start draining the CDC TX ring before the first
-             * kprintf so early boot output is not dropped. */
-            until = delayed_by_ms(get_absolute_time(), DEV_USB_INIT_TIMEOUT);
-            while (absolute_time_diff_us(get_absolute_time(), until) > 0)
-                tight_loop_contents();
-        }
-
+        /* No blocking wait for USB.  core1 + TinyUSB enumerate the CDC
+         * asynchronously in the background, and the 512-byte TX ring buffers
+         * early boot output until a host attaches.  Polling here only delayed
+         * boot for a cosmetic benefit; the console works as soon as the
+         * host mounts, regardless. */
         devtty_defconfig(TTYDRV_USB, NUM_DEV_TTY_USB, 1);
         devtty_defconfig(TTYDRV_UART, NUM_DEV_TTY_UART, 1 + NUM_DEV_TTY_USB);
         ttymap_count = NUM_DEV_TTY;

@@ -97,14 +97,14 @@ void devlcd_init(void) {
     gpio_set_function(PIN_SPI0_MOSI, GPIO_FUNC_SPI);
     gpio_pull_up(PIN_SPI0_MISO);
 
-    /* Hardware reset ST7796S */
-    gpio_put(PIN_LCD_RST, 1); busy_wait_ms(20);
-    gpio_put(PIN_LCD_RST, 0); busy_wait_ms(50);
-    gpio_put(PIN_LCD_RST, 1); busy_wait_ms(150);
+    /* Hardware reset ST7796S (trimmed: onlySleep Out below needs a long wait) */
+    gpio_put(PIN_LCD_RST, 1); busy_wait_ms(10);
+    gpio_put(PIN_LCD_RST, 0); busy_wait_ms(20);
+    gpio_put(PIN_LCD_RST, 1); busy_wait_ms(50);
 
     /* Bodmer ST7796 Init Sequence */
-    lcd_cmd(0x01); busy_wait_ms(120);
-    lcd_cmd(0x11); busy_wait_ms(120);
+    lcd_cmd(0x01); busy_wait_ms(20);
+    lcd_cmd(0x11); busy_wait_ms(120);   /* datasheet-required Sleep Out delay */
 
     lcd_cmd(0xF0); lcd_data_byte(0xC3);
     lcd_cmd(0xF0); lcd_data_byte(0x96);
@@ -119,19 +119,18 @@ void devlcd_init(void) {
     lcd_cmd(0xC1); lcd_data_byte(0x06);
     lcd_cmd(0xC2); lcd_data_byte(0xA7);
     lcd_cmd(0xC5); lcd_data_byte(0x18);
-    busy_wait_ms(120);
+    /* Held-breath time after VCOM/gamma/unlock is not required by the
+     * ST7796S datasheet — removed 3x120ms of boot delay. */
 
     { uint8_t d[] = { 0xF0, 0x09, 0x0B, 0x06, 0x04, 0x15, 0x2F, 0x54, 0x42, 0x3C, 0x17, 0x14, 0x18, 0x1B }; lcd_cmd(0xE0); lcd_data(d, 14); }
     { uint8_t d[] = { 0xE0, 0x09, 0x0B, 0x06, 0x04, 0x03, 0x2B, 0x43, 0x42, 0x3B, 0x16, 0x14, 0x17, 0x1B }; lcd_cmd(0xE1); lcd_data(d, 14); }
-    busy_wait_ms(120);
 
     lcd_cmd(0xF0); lcd_data_byte(0x3C);
     lcd_cmd(0xF0); lcd_data_byte(0x69);
-    busy_wait_ms(120);
 
     lcd_cmd(0x21); /* Inversion ON */
     lcd_cmd(0x29); /* Display ON */
-    busy_wait_ms(50);
+    busy_wait_ms(20);
 
     gpio_put(PIN_LCD_BL, 1);
     lcd_ready = true;
