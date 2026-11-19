@@ -99,10 +99,19 @@ void kputchar(uint_fast8_t c)
      * kputchar is called from boot and fault/panic contexts with interrupts
      * possibly disabled, and a host that enumerated but is not draining CDC
      * would make an unbounded wait hang the kernel.  Occasional dropped bytes
-     * (garbled boot text) are preferable to a deadlock. */
+     * (garbled boot text) are preferable to a deadlock.
+     *
+     * Emit the CRLF pair as ONE atomic unit.  As two separate tty_putc()
+     * calls, a timer-IRQ echo (which also calls tty_putc) could land between
+     * the '\r' and '\n' and produce '\r<echo>\n'.  Holding di() across both
+     * is the local analogue of the Linux console lock across a whole record;
+     * nested di() is safe (PRIMASK saved/restored), and if IRQs were already
+     * off (boot/panic) irqrestore keeps them off. */
+    irqflags_t irq = di();
     if (c == '\n')
         tty_putc(1, '\r');
     tty_putc(1, c);
+    irqrestore(irq);
 }
 
 void tty_putc(uint_fast8_t minor, uint_fast8_t c)
