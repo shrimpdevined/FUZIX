@@ -12,6 +12,12 @@ set(CMAKE_BUILD_TYPE Debug)
 # console/LCD/SD and gives the user pool the RAM it needs.
 set(PICO_COPY_TO_RAM 0)
 option(TOTALMEM "specify how much TOTALMEM is present" 0)
+# Linux-style warning baseline: keep the compiler honest so new code does not
+# silently introduce bugs (the three real latent bugs fixed in K1 were only
+# visible under -Wall/-Wextra).  -Wno-unused-parameter is waived because the
+# FUZIX driver/vtable ABI requires unused parameters throughout.  A separate
+# opt-in FUZIX_WERROR turns warnings into errors for CI / strict builds.
+option(FUZIX_WERROR "treat compiler warnings as errors" OFF)
 
 add_compile_definitions(
 		PICO_HEAP_SIZE=0x0
@@ -97,6 +103,27 @@ target_compile_definitions(fuzix PRIVATE
     PICO_USB_RESET_SUPPORT_MS_OS_20_DESCRIPTOR=0
     PICO_USB_RESET_INCLUDE_DEFAULT_APP_DRIVER_CB=1
 )
+
+# Warning flags are applied to C sources only (Linux KBUILD_CFLAGS model);
+# C++ sources in the target (TinyUSB glue) must not receive C-only warnings.
+# The -Wno-* waivers cover legacy style categories that are noisy across the
+# generic kernel but do not indicate bugs; each was triaged in MASTER_PLAN K1.
+target_compile_options(fuzix PRIVATE
+    $<$<COMPILE_LANGUAGE:C>:
+        -Wall -Wextra -Wno-unused-parameter
+        -Wno-sign-compare          # legacy off_t/uoff_t/int mixes across VFS
+        -Wno-unused-value          # comma-expression macros (i_ref, _uget/_uput)
+        -Wno-implicit-fallthrough  # switch fallthroughs in generic syscall code
+        -Wno-pointer-sign          # char* vs uint8_t* in legacy string helpers
+        -Wno-type-limits           # always-true range check in dhara/error.c
+        -Wno-misleading-indentation
+        -Wno-empty-body
+        -Wno-old-style-declaration
+    >
+)
+if(FUZIX_WERROR)
+    target_compile_options(fuzix PRIVATE $<$<COMPILE_LANGUAGE:C>:-Werror>)
+endif()
 
 target_link_libraries(fuzix
     pico_stdlib

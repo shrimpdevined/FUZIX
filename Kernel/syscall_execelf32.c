@@ -49,7 +49,6 @@ arg_t _execve(void)
 	inoptr ino;
 	Elf32_Ehdr ehdr;
 	Elf32_Phdr* phdr = NULL;
-	Elf32_Sym* symtab;
 	struct s_argblk* abuf = NULL;
 	struct s_argblk* ebuf = NULL;
 	uaddr_t dynamic;

@@ -318,9 +318,10 @@ int tty_ioctl(uint_fast8_t minor, uarg_t request, char *data)
 	case TIOCFLUSH:
 		clrq(&ttyinq[minor]);
 		/* Also drain any device-side staging ring (eg USB CDC on RP2040),
-		 * otherwise bytes still there are delivered to the next prompt. */
-		if (tty_flushinput)
-			tty_flushinput(minor);
+		 * otherwise bytes still there are delivered to the next prompt.
+		 * tty_flushinput is weak with a no-op default, so call it directly —
+		 * testing a function's address is always true (GCC -Waddress). */
+		tty_flushinput(minor);
                 tty_selwake(minor, SELECT_OUT);
 		break;
         case TIOCHANGUP:

@@ -11,7 +11,9 @@ void hexdump(const void* data, size_t size)
 
 	while (pos < size)
 	{
-		kputhex(i+pos);
+		/* Print the current line's byte offset.  Using `i` here read an
+		 * uninitialised variable (i is only set by the loops below). */
+		kputhex(pos);
 		kputs(" : ");
 		for (i=0; i<16; i++)
 		{
