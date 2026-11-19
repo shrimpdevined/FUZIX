@@ -89,6 +89,22 @@ static void timer_tick_cb(unsigned alarm)
      * cannot guarantee. */
     watchdog_update();
 
+    /* Core1 owns TinyUSB (the only console).  If its heartbeat stops for
+     * >2 s while core0 is alive, core1 is wedged (e.g. parked in a lockout
+     * or faulted during XIP-off flash) — the "enumerated but mute" failure.
+     * A full watchdog reset is the only reliable recovery: core1 keeps the
+     * USB stack alive and cannot be restarted independently. */
+    {
+        static uint32_t last_hb;
+        static uint32_t stale_ticks;
+        if (core1_heartbeat != last_hb) {
+            last_hb = core1_heartbeat;
+            stale_ticks = 0;
+        } else if (++stale_ticks >= 2 * TICKSPERSEC) {
+            watchdog_reboot(0, 0, 0);
+        }
+    }
+
     if (hardware_alarm_set_target(0, next))
     {
         update_us_since_boot(&next, time_us_64() + (1000000 / TICKSPERSEC));

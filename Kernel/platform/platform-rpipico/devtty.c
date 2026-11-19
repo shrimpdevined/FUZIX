@@ -137,12 +137,16 @@ void tty_putc(uint_fast8_t minor, uint_fast8_t c)
 ttyready_t tty_writeready(uint_fast8_t minor)
 {
     if (minor == 1) {
-        /* Honest backpressure for the USB console.  With no host attached
-         * nothing will ever drain the ring, so report ready (and let the
-         * byte be dropped) rather than blocking the system forever. */
-        if (!usbconsole_is_available(1))
-            return TTY_READY_NOW;
-        return usbconsole_ready(1);
+        /* USB console TX is best-effort and NEVER blocks the writer.  When
+         * the host is attached but not draining CDC (terminal not reading),
+         * the 512-byte TX ring stays full and usbconsole_ready() would
+         * return TTY_READY_LATER forever: tty_putc_maywait() would psleep()
+         * mid-string and nothing calls tty_outproc() to wake it (the tick's
+         * wake condition is false while the ring is full).  That deadlocked
+         * userspace writes — e.g. getpass() printed only "P"/"Passw".  Report
+         * ready always: usbconsole_putc() drops+counts on overflow instead,
+         * so output is best-effort but the process always makes progress. */
+        return TTY_READY_NOW;
     }
     struct ttymap *map = &ttymap[minor];
     if (map->tty == 0)

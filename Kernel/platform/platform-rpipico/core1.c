@@ -66,6 +66,13 @@ volatile int usb_host_connected;
 volatile uint32_t usbconsole_tx_dropped;
 volatile uint32_t usbconsole_rx_dropped;
 
+/* core1 liveness telemetry: bumped once per core1_main loop iteration.  If it
+ * stops advancing while core0 stays alive (watchdog fed), core1 is wedged —
+ * the "enumerated but mute USB" failure.  Kept in .bss (RAM) so picotool can
+ * read it even while XIP is disabled during flash programming. */
+volatile uint32_t core1_heartbeat;
+volatile uint32_t core1_state;   /* 0=init 1=pre-tusb 2=post-tusb 3=running */
+
 /* Lock-free SPSC queue helpers.  `count` is derived from head-tail; a slot is
  * free when head-tail < LEN.  Barriers ensure the data write is visible before
  * the index increment (producer) and the index is visible before data read
@@ -220,10 +227,14 @@ static void core1_main(void)
 	/* Signal readiness before tusb_init(): core0 must not block on USB
 	 * initialisation while waiting for the lockout victim. */
 	core1_ready = 1;
+	core1_state = 1;
 	tusb_init();
+	core1_state = 2;
 
 	for (;;)
 	{
+		core1_state = 3;
+		core1_heartbeat++;
 		tud_task();
 
 		/*
@@ -248,10 +259,14 @@ static void core1_main(void)
 				n++;
 			}
 			if (n)
-			{
 				tud_cdc_n_write(i, chunk, n);
-				tud_cdc_n_write_flush(i);
-			}
+			/* Flush unconditionally: if a previous pre-enumeration write left
+			 * TinyUSB's 64-byte TX FIFO full, write_available()==0 means we
+			 * read no bytes (n==0) and the old code never flushed — so the
+			 * stale FIFO was never pushed out and TX stalled permanently
+			 * (console prints a few chars then freezes).  A periodic flush
+			 * pushes any pending data once the host is draining. */
+			tud_cdc_n_write_flush(i);
 		}
 
 		for (int i = 0; i < CFG_TUD_CDC; i++)
