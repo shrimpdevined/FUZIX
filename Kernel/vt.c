@@ -95,6 +95,12 @@ static volatile uint16_t vtd_head;
 static volatile uint16_t vtd_tail;
 static volatile uint32_t vtd_dropped;
 
+/* Telemetry accessor for platform diagnostics (MASTER_PLAN L2). */
+uint32_t vt_dropped_count(void)
+{
+	return vtd_dropped;
+}
+
 static void cursor_fix(void)
 {
 	if (cursorx < 0) {

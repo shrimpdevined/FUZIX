@@ -4,6 +4,8 @@
 #include <exec.h>
 #include "picosdk.h"
 #include "pico_ioctl.h"
+#include "core1.h"
+#include <vt.h>
 #include <pico/multicore.h>
 #include <pico/bootrom.h>
 #include <hardware/watchdog.h>
@@ -46,6 +48,19 @@ int plt_dev_ioctl(uarg_t request, char *data)
     {
         reset_usb_boot(0, 0);
         return 0;
+    }
+    if (request == PICOIOC_DIAG)
+    {
+        /* Linux-style observability: expose the best-effort output path's
+         * drop counters and core1 liveness so userspace can tell a lost
+         * prompt terminator from a render lag or a wedged USB core. */
+        struct pico_diag d;
+        d.usb_tx_dropped = usbconsole_tx_dropped;
+        d.usb_rx_dropped = usbconsole_rx_dropped;
+        d.vt_dropped = vt_dropped_count();
+        d.core1_heartbeat = core1_heartbeat;
+        d.core1_state = core1_state;
+        return uput(&d, data, sizeof(d));
     }
     return -1;
 }

@@ -71,6 +71,7 @@ void do_beep(void);
 int vt_ioctl(uint_fast8_t minor, uarg_t op, char *ptr);
 int vt_inproc(uint_fast8_t minor, uint_fast8_t c);
 void vtattr_notify(void);
+uint32_t vt_dropped_count(void);
 extern uint8_t vtattr;
 extern uint8_t vtattr_cap;
 extern uint8_t vtink;
