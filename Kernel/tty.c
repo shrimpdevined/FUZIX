@@ -528,11 +528,6 @@ uint_fast8_t tty_putc_maywait(uint_fast8_t minor, uint_fast8_t c, uint_fast8_t f
 
         flag &= O_NDELAY;
 
-#ifdef CONFIG_DEV_PTY
-	if (minor >= PTY_OFFSET)
-		ptty_putc_wait(minor, c);
-	else
-#endif
         /* For slower platforms it's not worth the task switching and return
            costs versus waiting a bit. A box with tx interrupts and sufficient
            performance can buffer or sleep in tty_putc instead.
@@ -617,117 +612,6 @@ void tty_carrier_raise(uint_fast8_t minor)
 	wakeup(&ttydata[minor].termios.c_cflag);
 	tty_selwake(minor, SELECT_IN|SELECT_OUT);
 }
-
-/*
- *	PTY logic
- */
-
-#ifdef CONFIG_DEV_PTY
-
-static uint8_t ptyusers[PTY_PAIR];
-
-int ptty_open(uint_fast8_t minor, uint16_t flag)
-{
-	return tty_open(minor + PTY_OFFSET, flag);
-}
-
-int ptty_close(uint_fast8_t minor)
-{
-	return tty_close(minor + PTY_OFFSET);
-}
-
-int ptty_write(uint_fast8_t minor, uint_fast8_t rawflag, uint_fast8_t flag)
-{
-	return tty_write(minor + PTY_OFFSET, rawflag, flag);
-}
-
-int ptty_read(uint_fast8_t minor, uint_fast8_t rawflag, uint_fast8_t flag)
-{
-	return tty_read(minor + PTY_OFFSET, rawflag, flag);
-}
-
-int ptty_ioctl(uint_fast8_t minor, uint16_t request, char *data)
-{
-	return tty_ioctl(minor + PTY_OFFSET, rawflag, flag);
-}
-
-int pty_open(uint_fast8_t minor, uint16_t flag)
-{
-	int r = tty_open(minor + PTY_OFFSET, flag | O_NOCTTY | O_NDELAY);
-	if (r == 0) {
-		if (!ptyusers[minor])
-			tty_carrier_raise(minor + PTY_OFFSET);
-		ptyusers[minor]++;
-	}
-	return r;
-}
-
-int pty_close(uint_fast8_t minor)
-{
-	ptyusers[minor]--;
-	if (ptyusers[minor] == 0)
-		tty_carrider_drop(minor + PTY_OFFSET);
-	return tty_close(minor + PTY_OFFSET);
-}
-
-int pty_write(uint_fast8_t minor, uint_fast8_t rawflag, uint_fast8_t flag)
-{
-	uint16_t nwritten;
-	minor += PTY_OFFSET;
-
-	while (nwritten < udata.u_count) {
-		if (udata.u_sysio)
-			c = udata.u_base;
-		else
-			c = ugetc(udata.u_base);
-		if (tty_inproc(minor, c)) {
-			nwritten++;
-			udata.u_count++;
-			continue;
-		}
-		if (nwritten == 0
-		    && psleep_flags(&ttyinq[minor].q_count, flag))
-			return -1;
-	}
-
-	return nwritten;
-}
-
-int pty_read(uint_fast8_t minor, uint_fast8_t rawflag, uint_fast8_t flag)
-{
-	struct s_queue q = &ttyinq[minor + PTY_OFFSET + PTY_PAIR];
-	char c;
-
-	while (nread < udata.u_count) {
-		if (remq(q, &c)) {
-			if (udata.u_sysio)
-				*udata.u_base = c;
-			else
-				uputc(c, udata.u_base);
-			udata.u_base++;
-			nread++;
-			continue;
-		}
-		if (nread == 0 && psleep_flags(q, flag))
-			return -1;
-	}
-	return nread;
-}
-
-int pty_ioctl(uint_fast8_t minor, uint16_t request, char *data)
-{
-	return tty_ioctl(minor + PTY_OFFSET, rawflag, flag);
-}
-
-void pty_putc_wait(uint_fast8_t minor, char c)
-{
-	struct s_queue q = &ptyq[minor + PTY_OFFSET + PTY_PAIR];
-	/* tty output queue to pty */
-	insq(q, c);
-	/* FIXME: select */
-	wakeup(q);
-}
-#endif
 
 /* Additional functionality for bigger systems
 

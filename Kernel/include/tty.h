@@ -244,18 +244,6 @@ extern void tty_hangup(uint_fast8_t minor);
 extern void tty_carrier_drop(uint_fast8_t minor);
 extern void tty_carrier_raise(uint_fast8_t minor);
 
-extern int ptty_read(uint_fast8_t minor, uint_fast8_t rawflag, uint_fast8_t flag);
-extern int ptty_write(uint_fast8_t minor, uint_fast8_t rawflag, uint_fast8_t flag);
-extern int ptty_open(uint_fast8_t minor, uint16_t flag);
-extern int ptty_close(uint_fast8_t minor);
-extern int ptty_ioctl(uint_fast8_t minor, uint16_t request, char *data);
-
-extern int pty_read(uint_fast8_t minor, uint_fast8_t rawflag, uint_fast8_t flag);
-extern int pty_write(uint_fast8_t minor, uint_fast8_t rawflag, uint_fast8_t flag);
-extern int pty_open(uint_fast8_t minor, uint16_t flag);
-extern int pty_close(uint_fast8_t minor);
-extern int pty_ioctl(uint_fast8_t minor, uint16_t request, char *data);
-
 extern uint_fast8_t tty_inproc(uint_fast8_t minor, uint_fast8_t c);
 extern void tty_outproc(uint_fast8_t minor);
 extern void tty_echo(uint_fast8_t minor, uint_fast8_t c);
