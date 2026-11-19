@@ -45,11 +45,11 @@
 
 /* We have a GPIO interface */
 #define CONFIG_DEV_GPIO
-/* I2C CardKB keypad on GPIO0/1 (I2C0, addr 0x5F).  DISABLED pending root-cause
- * of random boot hangs: devkb_poll() does a blocking I2C read from the 200Hz
- * timer IRQ with IRQs off, which can starve the alarm re-arm / watchdog feed.
- * Re-enable once the probe is moved out of IRQ context. */
-#undef CONFIG_I2C_KEYBOARD
+/* I2C CardKB keypad on GPIO0/1 (I2C0, addr 0x5F).  This is a LAPTOP — the
+ * CardKB is the ONLY input device, so it is ALWAYS enabled (no runtime switch;
+ * the init/poll call sites are unconditional).  A NACK on the I2C bus returns
+ * in ~90us even with no key, so polling from the timer tick is safe. */
+#define CONFIG_I2C_KEYBOARD 1
 /* Enable to make ^Z dump the inode table for debug */
 #undef CONFIG_IDUMP
 /* Enable to make ^A drop back into the monitor */

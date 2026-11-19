@@ -120,9 +120,7 @@ int main(void)
     di();
 
     devlcd_init();
-#ifdef CONFIG_I2C_KEYBOARD
-    devkb_init();
-#endif
+    devkb_init();       /* laptop: CardKB is the primary input, always on */
     devtouch_init();
 
     /* Hardware watchdog: the single guarantee of recovery from ANY lockup

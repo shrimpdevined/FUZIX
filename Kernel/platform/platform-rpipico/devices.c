@@ -63,9 +63,7 @@ static void timer_tick_cb(unsigned alarm)
     absolute_time_t next;
     update_us_since_boot(&next, to_us_since_boot(now) + (1000000 / TICKSPERSEC));
 
-#ifdef CONFIG_I2C_KEYBOARD
-    devkb_poll();
-#endif
+    devkb_poll();       /* laptop: CardKB is the primary input, always on */
     /* One pass now moves up to a full 512-byte staging ring into ttyinq
      * (the old 8x loop existed for a 16-byte ring).  Keeping this bounded
      * matters: tty_interrupt() runs with interrupts disabled, and every
