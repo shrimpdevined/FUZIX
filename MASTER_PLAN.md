@@ -8,10 +8,14 @@ tracked here; mark it done only after its acceptance test passes.
 
 ---
 
-## 0. Rules of engagement (non-negotiable)
+## 0. Rules of engagement
 
 - Warning-free builds; no new warnings from `-Wall -Wextra`.
-- Preserve all uncommitted user changes. Never delete tracked upstream `.md` docs.
+- **Git workflow (standard agentic-AI practice):** commit each verified, focused change
+  with a descriptive message (issue ID + what/why); push to `origin` regularly so work is
+  backed up off-machine and visible; rebase/squash freely on local branches to keep a
+  clean, reviewable history; never force-push to a shared branch without coordination.
+- Preserve the user's uncommitted work. Never delete tracked upstream `.md` docs.
 - Stream mode stays removed; block mode with 64-byte paced writes is the only transfer path.
 - Keyboard (CardKB) must always work — it is the only input on the laptop.
 - Full conformance (`fcctest4.py`) runs **once, at the very end**, after cleanup and app reload.
@@ -251,7 +255,8 @@ Each phase ends with its acceptance test. Only mark issues `[x]` when the test p
 - Do not reformat for "Linux feel" (4→8 spaces, naming) until phases 0-5 pass; it adds zero stability.
 - Do not merge per-platform `devtty.c`/`kputchar` implementations — one definition per build is by design.
 - Do not enable/repair `CONFIG_DEV_PTY` — delete it (K2).
-- Do not add commits/pushes/rebases unless asked.
+- Git: commit each verified change and push to `origin` regularly; keep history clean with
+  rebase on local work; avoid force-pushing shared history.
 - Cosmetic comment fixes ARE cheap correctness wins: watchdog "8 s"→5 s, `TTY_READY_LATER` doc `-1`→`2`.
 
 ---
