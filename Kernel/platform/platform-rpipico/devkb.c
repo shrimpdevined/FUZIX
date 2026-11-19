@@ -12,6 +12,13 @@
 static bool kb_present;
 static uint8_t kb_probe_div;
 
+/* Upper bound on a single 1-byte I2C read.  This runs from the 200 Hz timer
+ * tick with interrupts disabled, so it directly bounds the IRQ-off window.
+ * At 50 kHz a 1-byte read is ~0.36 ms; 2 ms is ample but halves the worst-case
+ * stall versus the old 5 ms (MASTER_PLAN I1).  The ~1.1 s keypad boot race is
+ * handled by the periodic re-probe below, NOT by this per-read timeout. */
+#define KB_I2C_TIMEOUT_US 2000
+
 void devkb_init(void) {
     uint8_t probe = 0;
     /* CardKB ATmega can be finicky about I2C speed; 50kHz is more reliable
@@ -21,7 +28,7 @@ void devkb_init(void) {
     gpio_set_function(PIN_KB_SCL, GPIO_FUNC_I2C);
     gpio_pull_up(PIN_KB_SDA);
     gpio_pull_up(PIN_KB_SCL);
-    kb_present = (i2c_read_timeout_us(i2c0, I2C_KB_ADDR, &probe, 1, false, 5000) == 1);
+    kb_present = (i2c_read_timeout_us(i2c0, I2C_KB_ADDR, &probe, 1, false, KB_I2C_TIMEOUT_US) == 1);
     kb_probe_div = 0;
 }
 
@@ -41,12 +48,12 @@ void devkb_poll(void) {
         if (++kb_probe_div < 10)
             return;
         kb_probe_div = 0;
-        if (i2c_read_timeout_us(i2c0, I2C_KB_ADDR, &key, 1, false, 5000) != 1)
+        if (i2c_read_timeout_us(i2c0, I2C_KB_ADDR, &key, 1, false, KB_I2C_TIMEOUT_US) != 1)
             return;
         kb_present = true;
         /* fall through: process the byte from the detecting read */
     } else {
-        if (i2c_read_timeout_us(i2c0, I2C_KB_ADDR, &key, 1, false, 5000) != 1)
+        if (i2c_read_timeout_us(i2c0, I2C_KB_ADDR, &key, 1, false, KB_I2C_TIMEOUT_US) != 1)
             return;
     }
     if (key == 0)
