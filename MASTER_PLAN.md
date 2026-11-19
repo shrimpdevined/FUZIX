@@ -187,13 +187,17 @@ needs RP2350. Credit existing hardening: `uget/uput` range enforcement, pagemap 
 
 Each phase ends with its acceptance test. Only mark issues `[x]` when the test passes.
 
-### Phase 0 — Cleanup & observability ground work (hours)
+### Phase 0 — Cleanup & observability ground work (hours) — ✅ DONE & DEVICE-TESTED
 - K1: enable `-Wall -Wextra`; fix the 3 real latent bugs + waive the rest.
 - K2: delete dead PTY block; K3: delete dead USB fn/decl, tidy `extern`/guard.
 - C6: make `kputchar` a single atomic emit (prerequisite for C1/C3).
 - S7: fix tick re-arm + watchdog comments.
-- L2: expose the existing drop counters.
-- **Acceptance:** clean warning-free build; counters readable; no behavioral change.
+- L2: expose the existing drop counters + `picoctl diag` userspace tool.
+- **Acceptance MET:** clean warning-free build (default + `-Werror`); flashed kernel UF2
+  to device, booted to prompt with no crash; `picoctl diag` worked on device showing
+  `usb_tx_dropped=111` (boot), `vt_dropped=0`, `core1_state=3`, heartbeat rising.
+  Under compile/input activity: no crash, no new drops, counters healthy. Committed
+  as `207bd96`,`0ede38e`,`a28d949`,`2318118`,`326e78a`,`0b5d749`,`ae61c94`.
 
 ### Phase 1 — Stop the crashes (P0 stability)
 - S1: lockout-aware core1 heartbeat (TOP priority); batch/disable per-swap TRIM.
