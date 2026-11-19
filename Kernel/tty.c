@@ -536,7 +536,7 @@ uint_fast8_t tty_putc_maywait(uint_fast8_t minor, uint_fast8_t c, uint_fast8_t f
            The driver should return a value from the ttyready_t enum:
             1 (TTY_READY_NOW) -- send bytes now
             0 (TTY_READY_SOON) -- spinning may be useful
-           -1 (TTY_READY_LATER) -- blocked, don't spin (eg flow controlled)
+            2 (TTY_READY_LATER) -- blocked, don't spin (eg flow controlled)
 
            FIXME: we can make tty_sleeping an add on to a hardcoded function using tty
 	   flags, and tty_outproc test it. Then only devices wanting to mask

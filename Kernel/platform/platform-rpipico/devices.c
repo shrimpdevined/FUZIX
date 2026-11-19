@@ -60,6 +60,13 @@ static void timer_tick_cb(unsigned alarm)
     irqflags_t irq = di();
     udata.u_ininterrupt = 1;
 
+    /* Re-arm from the monotonic hardware timer each tick.  The old code
+     * computed `next` from an init-time `now` that was NEVER advanced, so
+     * after the first tick the target was always in the past and the primary
+     * hardware_alarm_set_target() path never succeeded (every tick relied on
+     * the fallback below).  Linux periodic timers re-arm from a monotonic
+     * clock source; time_us_64() is ours. */
+    update_us_since_boot(&now, time_us_64());
     absolute_time_t next;
     update_us_since_boot(&next, to_us_since_boot(now) + (1000000 / TICKSPERSEC));
 
@@ -83,8 +90,8 @@ static void timer_tick_cb(unsigned alarm)
 
     /* Feed the hardware watchdog from core0's periodic tick.  If core0 ever
      * locks up (fault/lockup/IRQ-off spin), the tick stops and the watchdog
-     * resets the whole chip within 8 s — recovery that software panic paths
-     * cannot guarantee. */
+     * resets the whole chip within 5 s (watchdog_enable(5000)) — recovery
+     * that software panic paths cannot guarantee. */
     watchdog_update();
 
     /* Core1 owns TinyUSB (the only console).  If its heartbeat stops for

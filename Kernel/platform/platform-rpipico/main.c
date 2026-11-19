@@ -127,7 +127,7 @@ int main(void)
      * (Cortex-M0 nested-fault lockup, IRQ-off spin, XIP-off hang), none of
      * which can execute the software reset in plt_monitor().  The watchdog
      * is an independent hardware block clocked from the tick generator.
-     * 8 s is generous: flash ops are short, so a healthy core0 always feeds
+     * 5 s is generous: flash ops are short, so a healthy core0 always feeds
      * it from the 200 Hz timer tick; only a genuine lockup lets it expire. */
     watchdog_enable(5000, false);
 
