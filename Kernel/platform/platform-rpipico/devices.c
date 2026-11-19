@@ -64,6 +64,12 @@ static void timer_tick_cb(unsigned alarm)
     irqflags_t irq = di();
     udata.u_ininterrupt = 1;
 
+    /* Feed the watchdog FIRST, before any potentially-long work (I2C keyboard
+     * poll, tty drain).  Linux's watchdog discipline touches the device early
+     * so a slow handler still has the full timeout window; doing it last meant
+     * a stuck I2C read could consume the budget before the feed. */
+    watchdog_update();
+
     /* Re-arm from the monotonic hardware timer each tick.  The old code
      * computed `next` from an init-time `now` that was NEVER advanced, so
      * after the first tick the target was always in the past and the primary
@@ -91,12 +97,6 @@ static void timer_tick_cb(unsigned alarm)
         tty_outproc(1);
 
     timer_interrupt();
-
-    /* Feed the hardware watchdog from core0's periodic tick.  If core0 ever
-     * locks up (fault/lockup/IRQ-off spin), the tick stops and the watchdog
-     * resets the whole chip within 5 s (watchdog_enable(5000)) — recovery
-     * that software panic paths cannot guarantee. */
-    watchdog_update();
 
     /* Core1 owns TinyUSB (the only console).  If its heartbeat stops for
      * >2 s while core0 is alive, core1 is wedged (e.g. faulted during XIP-off
