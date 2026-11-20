@@ -140,6 +140,16 @@ static void charout(unsigned char c)
 			goto fix;
 		}
 		if (c == 10) {
+			/* Linux console semantics: LF implies CR.  A bare LF (which
+			 * reaches us whenever userspace clears OPOST|ONLCR on the
+			 * console, e.g. sh's tcsetattr) must still begin a fresh
+			 * line.  Leaving cursorx untouched advanced only the row and
+			 * drew the next prompt at the previous column, so prompts
+			 * stacked on one LCD line while the host terminal (which
+			 * treats LF as newline) showed one per line (MASTER_PLAN C3).
+			 * Zeroing the column here mirrors the serial console exactly
+			 * for both '\n' and '\r\n' streams. */
+			cursorx = 0;
 			cursory++;
 			goto fix;
 		}
