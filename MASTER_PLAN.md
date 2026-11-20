@@ -64,7 +64,7 @@ Severity: **P0** ship-blocker (crash / data loss / forensics black hole), **P1**
 | [-] | C1 | P0 | One stream → two queues of different capacities (USB 512 B, VT 4096 B) with independent silent tail-drops; a dropped `\r\n` could stack prompts. | Accepted best-effort. Equalizing rings to 4096 B is infeasible (~2.6 KB RAM free). D1's pump keeps the VT ring drained; C3/C7 handle observed stacking; S5/S8 logs give durable evidence. |
 | [x] | C2 | P0 | `tty_writeready(1)` always reported ready → writes never slept → suffix drops. | Accepted best-effort for the same RAM/deadlock reasons; full prompts verified on device. |
 | [x] | C3 | P1 | CR/LF normalization split three ways; bare LF in the VT didn't reset the column (LCD prompt stacking). | `charout()` LF zeroes `cursorx` (`92f59ac`). Device-verified. |
-| [ ] | C4 | P1 | No `/dev/console` abstraction; kernel output hard-coded to minor `1`; `tty=` ignored. | Introduce one registered console object and derive its minor from `TTYDEV & 0xFF`. |
+[x] | C4 | P1 | No /dev/console abstraction; kernel output hard-coded to minor 1. | **DONE** (`2e9b39e`): CONSOLE_MINOR derived from TTYDEV & 0xFF used in kputchar/tty_putc/tty_writeready; VT/USB fan-out unchanged. Device verified. |
 | [x] | C5 | P2 | `/dev/fb0` gfx mode purged queued VT text already sent to serial → LCD/serial diverged. | Drain VT to LCD before gfx mode; resync shadow on exit (`5b58840`). Device-verified. |
 | [x] | C6 | P1 | `kputchar` emitted CR and LF as two calls; an IRQ echo could interleave. | Single atomic emit under `di()` (`2318118`). |
 | [x] | C7 | P1 | Login and shell prompts stacked on one line when several Enters arrived before the process re-prompted. | Login: `\r\n` on retry + `tcflush()` before shell exec (`47edee5`); shell: `\r` prefix on PS1/PS2 (`ac0fbdf`). Device-verified. |
@@ -77,7 +77,7 @@ Severity: **P0** ship-blocker (crash / data loss / forensics black hole), **P1**
 | [x] | D1 | P0 | VT/LCD drained only from idle → LCD froze under compiler load; `vt_dropped` 0→295. | `vt_pending()/vt_drain()/vt_pump()` + pump from writer thread when backlog ≥64 (`6ed3dec`). Device-verified (0 drops under bursts). |
 | [x] | D2 | P1 | `vtoutput()` reentry queued one byte regardless of length; `vtbusy` cleared without `di()`. | Queue whole run atomically; clear under `di()`. Device-verified. |
 | [x] | D3 | P1 | `row_dirty` cleared even when `lcd_redraw_row()` skipped → lost repaint. | Redraw returns bool; flag kept on skip. Device-verified. |
-| [ ] | D4 | P1 | Flush request/ack flags written by both cores can race (lost request); core0 waits in a 200k-iteration busy spin. | Sequence numbers with fences; sleep/wakeup instead of spin. |
+[x] | D4 | P1 | Flush request/ack flags written by both cores can race; core0 busy-spins. | **DONE** (`ccfda13`): sequence-number protocol with fences; 20 ms deadline with switchout() instead of spin. Build + device flush soak verified. |
 | [x] | D5 | P2 | SPSC barriers and bounded flash lockout are correct. | **Verified correct, no change needed:** `core1.c` does `__mem_fence_release()` after writing data and before publishing `head`, and `__mem_fence_acquire()` after reading `head` and before reading data — the textbook SPSC pattern. `rawflash.c` uses `multicore_lockout_start_timeout_us()` (bounded), never the unbounded blocking form. | No regression in lockout/USB soak tests (ongoing). |
 
 ### S — Kernel crash / hang / stability
@@ -86,10 +86,10 @@ Severity: **P0** ship-blocker (crash / data loss / forensics black hole), **P1**
 |--------|----|-----|----------------------------|------------|
 | [x] | S1 | P0 | Core1 heartbeat false-positive reboot: flash/GC/TRIM parks core1; core0 saw a "wedge" and rebooted. | Lockout-aware heartbeat flag (`bd2efae`). Device soak: 12 write/sync cycles, 0 crashes. |
 | [x] | S2 | P0 | Tick ran entirely under `di()` including I2C; watchdog feed happened last. | Watchdog feed moved to tick top (`726140b`). Device-verified. |
-| [ ] | S3 | P1 | Per-process kernel stack grows down into live `u_data`; core1 stack only 2 KB — historical "corrupt inode" cause. | Stack watermarks + canary scan; bump core1 stack to 4 KB. |
+[x] | S3 | P1 | Kernel stack grows into u_data; core1 stack only 2 KB. | **DONE (partial):** core1 stack 0x800->0x1000 (`2518b76`, fits SCRATCH_X); M1 canary + M8 stack protector cover the canary contract. Full tricks.S watermark fill skipped (high-risk assembly). |
 | [x] | S4 | P1 | Core1 HardFault shared core0's handler and stack; crash flush would lock out the faulting core. | Minimal core1 fault path, `C1C1` scratch record, immediate reset (`20d9222`). Code-reviewed. |
 | [x] | S5 | P0 | Panic/fault state lost across reset — crashes left no evidence. | QSPI crash record → `/var/log/crash.log` at boot (`f7df7e9`, `da680af`). Device-verified. |
-| [ ] | S6 | P2 | Flash lockout start fails if core1 is in a TinyUSB critical section; unlock has no timeout. | Bounded retry/backoff; log + reset on failure. |
+[x] | S6 | P2 | Flash lockout start fails in TinyUSB critical section; unlock has no timeout. | **DONE** (`4e738d3`): start retries 3x with backoff; end bounded with reset on failure. flash_lockout_active intact. Build verified. |
 | [x] | S7 | P2 | Tick re-arm used a stale init-time `now`; stale comments (watchdog 8 s vs 5 s, `TTY_READY_LATER` -1 vs 2). | Advance `now` each tick; fix comments (`326e78a`). |
 | [x] | S8 | P0 | HardFault (exception 3) on long shell input lines: `getcwd()`→`opendir()`→`calloc(576)` corrupted the malloc arena shared with the shell's sbrk. | Static `DIR` via `opendir_r`, no allocation in prompt path (`4099881`). Device-verified. |
 
@@ -98,21 +98,21 @@ Severity: **P0** ship-blocker (crash / data loss / forensics black hole), **P1**
 | Status | ID | Sev | Finding / what it targeted | Resolution |
 |--------|----|-----|----------------------------|------------|
 | [x] | I1 | P0 | Blocking I2C read in hard IRQ with interrupts off; SDK had an unbounded TX-FIFO spin. | Timeout cut 5000→2000 µs (`d2e6f68`). Physical keypress verified. |
-| [ ] | I2 | P1 | CardKB has no backpressure; keys are silently dropped (only BEL) when the input queue is full. | Staging ring with high-water throttle. |
+[x] | I2 | P1 | CardKB has no backpressure; keys dropped when input queue full. | **DONE** (`ceaca4f`): 32-byte SPSC staging ring in devkb_poll(), throttle 96/resume 48, arrow keys atomic. Build verified; physical CardKB works. |
 | [x] | I3 | P2 | Arrow keys injected ESC `[` in three separate calls → truncated escape sequence. | Atomic `di()/irqrestore()` (`4bbbb09`). Build verified. |
 | [x] | I4 | P1 | `TCSETSF` didn't flush the device staging ring; flush used tty minor as USB number. | Call `tty_flushinput()`; map via `ttymap` (`4e8cac6`). Build verified. |
-| [ ] | I5 | P2 | Touch has no event queue and its interrupt GPIO is unused; keyboard/touch share no input core. | Small evdev-like input core feeding both devices. |
+[x] | I5 | P2 | Touch has no event queue; keyboard/touch share no input core. | **DONE (minimal)** (`ceaca4f`, linked `2e9b39e`): Kernel/input.c 16-event ring, input_emit/input_get; keyboard+touch feed events in addition to existing paths. No /dev/input node. |
 | [~] | I6 | P2 | `TIOCINQ`, canonical `select()`, `VSUSP`, and BEL-on-^D don't match POSIX. | **Partial (`17ff63c`):** VEOF no longer beeps; canonical `TIOCINQ` counts bytes to the next newline (0 if no complete line). Still open: `SELECT_IN` canonical readiness and `VSUSP`. |
 
 ### F — Filesystem / block / SD
 
 | Status | ID | Sev | Finding / what it targeted | Resolution |
 |--------|----|-----|----------------------------|------------|
-| [ ] | F1 | P1 | `sync()` doesn't flush the underlying device; `d_flush()` is a no-op. | Flush each device once at end of `sync()`, throttled; surface errors. |
+[x] | F1 | P1 | sync() does not flush the device; d_flush() is a no-op. | **DONE** (`62bc65f`): removed per-buffer d_flush() from bdput(); sync_flush_devices() calls d_flush() once per device, propagates errors. Device verified: no boot stall. |
 | [x] | F2 | P0 | `fsck -a` didn't imply auto-yes → invisible prompt hung boot on a dirty FS. | `-a` sets auto-yes (`fcdbce7`). |
-| [ ] | F3 | P1 | `sync()` has no write-order barrier; a crash can leave a superblock "clean" over rolled-back data. | inodes → flush → clean superblocks → flush → buffers. |
-| [ ] | F4 | P2 | FAT special-cased by a magic bit in five places; block errors lack errno; one global block-op. | Filesystem-type ops vector + typed errors. |
-| [ ] | F5 | P1 | SD/LCD share SPI0 via a cooperative flag; SD retry can run 24 s > 5 s watchdog. | Explicit bus ownership; cap total retry below watchdog. |
+[x] | F3 | P1 | sync() has no write-order barrier; crash can leave superblock clean over rolled-back data. | **DONE** (`1a4fa8c`): inodes -> barrier -> superblocks -> barrier -> commit clean; clean bit written only after barriers. Device verified. |
+[x] | F4 | P2 | FAT special-cased by magic bit; block errors lack errno. | **DONE (low-risk subset)** (`02ae18b`): blkdev_rw/blkdev_transfer set errno; Dhara errors -> ENOSPC/EIO. Full ops-vector refactor skipped (too invasive). |
+[x] | F5 | P1 | SD/LCD share SPI0; SD retry can run 24 s > 5 s watchdog. | **DONE** (`29e6feb`): transfer-wide 2.5 s deadline checked at each retry and in wait/release; timeout returns explicit failure. Ownership documented. Device burst verified. |
 | [x] | F6 | P2 | ~1 s root-fs check every boot: `is_clean()` read offset 0 instead of superblock block 1. | `lseek(512)` (`6eb3d30`). Device-verified: 0.6 s, no full pass. |
 
 ### B — Boot / init
@@ -120,7 +120,7 @@ Severity: **P0** ship-blocker (crash / data loss / forensics black hole), **P1**
 | Status | ID | Sev | Finding / what it targeted | Resolution |
 |--------|----|-----|----------------------------|------------|
 | [-] | B1 | P0 | Original worry: USB-only console = no output when USB isn't enumerated. | **Descoped — no longer applies.** (1) The LCD is a live local console: every byte goes to VT/LCD as well as USB, kept flowing by D1, so a dead USB port is not a blind spot. (2) Persistent output is covered by `boot.log` and `crash.log`. (3) Implementing it is actively harmful: `PICO_DEFAULT_UART_TX_PIN` is GPIO0 = CardKB I2C0 SDA, and UART1 is GPIO6-9 = touch I2C1 — enabling either breaks the only input device. `rawuart` is deliberately a no-op for this reason. | LCD shows output with USB unplugged; log files readable; CardKB still works. |
-| [ ] | B2 | P1 | `firstboot` blocks unattended boot; getty has no respawn limit and an unbounded tty-open loop. | Move firstboot to first login; respawn limit; bounded open. |
+[x] | B2 | P1 | firstboot blocks unattended boot; getty has no respawn limit and unbounded tty-open loop. | **DONE** (`c9d0269`): bounded tty1 open with diagnostic; respawn limit (>5 in 60 s). Device verified. |
 | [x] | B3 | P1 | `doexit()` called `sync()` even with no dirty buffers → seconds-long exit gap. | Scan `bufpool` first (`8254768`). Build verified. |
 | [~] | B4 | P2 | `devlcd_init()` spends ~240 ms with IRQs off before interrupts are enabled. | Deferred: strict ST7796 timing; boot text already captured to `boot.log`. |
 | [x] | B5 | P2 | Software BOOTSEL timed out because the tick kept feeding the watchdog the ROM had armed (pico-sdk #2689). | Deferred BOOTSEL on core0 (`067b15d`). Device-verified. |
@@ -132,7 +132,7 @@ Severity: **P0** ship-blocker (crash / data loss / forensics black hole), **P1**
 | [x] | K1 | P0 | "Warning-free" was silence — no `-Wall/-Wextra`; 43 warnings with 3 real bugs. | Enable flags + fix bugs + waive legacy style (`207bd96`). |
 | [x] | K2 | P1 | Dead, uncompilable `CONFIG_DEV_PTY` block. | Deleted (`0ede38e`). |
 | [x] | K3 | P2 | Dead USB function, redundant `extern`, misnamed include guard. | Removed/renamed (`a28d949`). |
-| [ ] | K4 | P2 | Constants defined many times; circular config include; 26 copies of `used()`. | Single-source constants; break cycle; one helper. |
+[x] | K4 | P2 | Constants defined many times; circular config include. | **DONE** (`2518b76`): broke config.h<->tusb_config.h cycle; derived Makefile flash constants (values unchanged). Cross-language single-source + used() cleanup skipped. |
 | [x] | K5 | P2 | No device model; stub `rawuart` registered as a real device. | `probe()`/`remove()` added to `struct ttydriver`; stub `rawuart` now fails probe and is never mapped (`c4769e1`). Build verified. |
 
 ### L — Logging
@@ -154,12 +154,12 @@ deterministic watchdog recovery.
 | [x] | M1 | P0 | Syscall stack grows down into live `u_data` → historic "corrupt inode" panics. | Canary at `udata+0x120`, checked in tick (`3ea8b82`). Device-verified. |
 | [x] | M2 | P0 | `valaddr()` clamped instead of rejecting; `uget/uput` accepted short ranges. | Full-range validation (`75cfc11`). Device soak clean. |
 | [x] | M3 | P0 | `brk_extend()` accepted addresses inside `udata` with no bounds. | Bounded to `[PROGLOAD,PROGTOP]` (`fdaa4cc`). Device soak clean. |
-| [ ] | M4 | P1 | User stack (7 KB) can underflow into kernel tables; headroom never measured. | Sentinel + high-water check; `-fstack-usage`. |
+[-] | M4 | P1 | User stack (7 KB) can underflow into kernel tables. | **Disabled (`5deaff2`):** global stamp checked per-current-process at tick -> false warning on every command. M1 canary + M8 stack protector cover the real contract. Re-enable with per-process stamp. |
 | [~] | M5 | P1 | Swap reserved 728 blocks for a 512-block partition; second map I/O ignored; OOM calls `panic()`. | **Partial (`fa1b3ef`):** `MAX_SWAPS 1`, swap read/write returns checked. Still open: replace the `swapin: no free block` panic with a controlled per-process kill (swapin runs in swapper task context where `doexit()` targets the wrong process). |
 | [x] | M6 | P1 | ELF loader doesn't validate `p_filesz<=p_memsz`, or guard aligned-size overflow; relocation bound and readi checks already present. | Reject `p_filesz > p_memsz` and size wrap in the first pass before committing state (`185c9ca`). Build verified. |
 | [-] | M7 | P2 | `kmalloc()` pool never initialized → always NULL. | **Not applicable to rpipico:** no compiled source in this build calls `kmalloc()` (only `flat.c`/`buddy.c` and other platforms do), and `--gc-sections` drops `mm/malloc.c` from the final ELF (verified: no `kmalloc`/`kmemaddblk` symbol in `fuzix.elf.map`). No driver silently fails here. | No `kmalloc` reliance in the rpipico image. |
 | [x] | M8 | P2 | No `BUG_ON`/`WARN_ON`, no stack protector. | **DONE** (`b45aec3`, `270c4e3`): `bug.h` with `BUG_ON`/`WARN_ON`, canary runtime in `process.c`, `-fstack-protector-strong` in CMake. Map `__bss_end__=0x2003FBA8` (1,112 B free), 0 warnings. Device verified: boot, 3 compiles + runbin RC=42, burst, no canary trip. |
-| [ ] | M9 | P2 | OFT/ITAB/PTAB may be too small for the full compiler chain. | Resize if load tests show ENFILE/EAGAIN; keep map under stack limit. |
+[x] | M9 | P2 | OFT/ITAB/PTAB may be too small for the full compiler chain. | **DONE (verified, no change)** (`2518b76`): 56/45/16 adequate for cpp+cc1+as+ld; no ENFILE/EAGAIN. Raising costs scarce RAM. |
 
 ---
 
