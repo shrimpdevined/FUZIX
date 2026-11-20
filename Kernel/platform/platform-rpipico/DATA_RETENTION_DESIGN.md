@@ -116,5 +116,16 @@ apps. Build on the existing `read`/`write` syscalls (no kernel rewrite).
 
 ## 6. Status
 
-* G1 — in progress (first increment).
-* G2–G5 — planned.
+* **G1 — DONE & DEVICE-VERIFIED (`b4a5641`):** `fsck -a` runs all five
+  passes with the `!rootfs`/`!aflag` guards (no boot reboot, no write through
+  the mounted root), rescan-capped. Verified: fresh boot shows all pass
+  messages, mounts OK, no panic.
+* **G2 — DONE & DEVICE-VERIFIED (`b4a5641`):** `/bin/verify` streaming
+  CRC32 tool. Verified: good file = 3 records OK/rc0; flipped byte = CRC
+  mismatch/rc1; truncated = detected/rc1.
+* **G3 — DONE & DEVICE-VERIFIED (`b4a5641`):** `bdput`/`freebuf` retain
+  `bf_dirty` on failed writes; `bufsync` returns status folded into `sync()`;
+  typed EIO on FTL/BLKFLSBUF failures; full LBA range check; one FTL
+  checkpoint per barrier.
+* G4 (pipeline watchdog heartbeat) — planned.
+* G5 (streaming read/write API for data-logging apps) — planned.
