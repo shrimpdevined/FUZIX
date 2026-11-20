@@ -215,7 +215,17 @@ int pagemap_realloc(struct exec *hdr, usize_t size)
     #ifdef DEBUG
         debug_blocks();
     #endif
-    contextswitch(p);
+    /* contextswitch() permutes the 2 KB blocks that hold the syscall stack
+     * (udata+UDATA_SIZE).  switchin() switches to __StackTop before calling
+     * it; this brk path must do the same or its own return address is
+     * relocated out from under it (M10 Phase 2). */
+    {
+        extern void plt_swap_stack_enter(void);
+        extern void plt_swap_stack_leave(void);
+        plt_swap_stack_enter();
+        contextswitch(p);
+        plt_swap_stack_leave();
+    }
 	return 0;
 }
 
@@ -255,6 +265,11 @@ void contextswitch(ptptr p)
         put_swap_page(p);
     }
 
+    /* Permuting 2 KB blocks changes absolute addresses underneath the tick
+     * handler (which touches udata and the canary).  No schedule point is
+     * allowed mid-permutation.  Nested di() is safe: switchin() already
+     * entered with interrupts off. */
+    irqflags_t irq = di();
     int slot = get_slot(p);
     int blocks = get_proc_size_blocks(p);
     for (int i=0; i<blocks; i++)
@@ -289,10 +304,10 @@ void contextswitch(ptptr p)
             *b2 = t;
         }
     }
+    irqrestore(irq);
 
-    #ifdef DEBUG
-        debug_blocks();
-    #endif
+    /* No udata access, kprintf or debug_blocks() past this point: the
+     * block-0 exchange above changed which process udata belongs to (M10). */
 }
 
 /* Copy the current process into a new child slot, and context switch so it's live. */

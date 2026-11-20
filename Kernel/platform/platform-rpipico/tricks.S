@@ -14,6 +14,41 @@ plt_idle:
     wfi
     pop {r4, pc}
 
+/* Protected-stack helpers for block relocation (M10 Phase 2).
+ *
+ * The syscall kernel stack lives at udata+UDATA_SIZE, i.e. inside the
+ * relocatable 2 KB block pool.  contextswitch() permutes those blocks, so any
+ * caller running on that stack must move off it first or its own return
+ * address is swapped out from under it.  switchin() already does this; the
+ * brk/pagemap_realloc() path did not.  These helpers let C code do the same.
+ *
+ * The saved SP is kept in kernel .bss, NOT in a C local: a local could be
+ * spilled onto the very stack we are about to abandon. */
+.data
+.align 2
+.global plt_saved_kstack_sp
+plt_saved_kstack_sp: .word 0
+
+.text
+.thumb_func
+.global plt_swap_stack_enter
+plt_swap_stack_enter:
+    mov r0, sp              @ Thumb-1 needs a lo register to store
+    ldr r1, =plt_saved_kstack_sp
+    str r0, [r1]
+    ldr r1, =__StackTop
+    mov sp, r1
+    bx lr
+
+.text
+.thumb_func
+.global plt_swap_stack_leave
+plt_swap_stack_leave:
+    ldr r1, =plt_saved_kstack_sp
+    ldr r0, [r1]
+    mov sp, r0
+    bx lr
+
 .text
 .thumb_func
 fatal_exception_handler_trampoline:
