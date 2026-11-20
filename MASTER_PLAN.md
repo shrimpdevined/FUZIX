@@ -61,7 +61,7 @@ Severity: **P0** = ship-blocker (crash / data loss / forensics black hole), **P1
 | C4 | P1 | No `/dev/console` abstraction; console is magic minor `1`; `tty=` config ignored for kernel output. | Introduce small `struct console` (name, write, minor, setup/exit) registered once; derive minor from `TTYDEV & 0xFF`; replace literal `1`s. | `tty=` remap routes kernel messages correctly; no literal console minor in output paths. |
 | C5 | P2 | `/dev/fb0` gfx mode purges queued VT text (`devlcd.c:306-311`, `vt.c:254-259`) and clears shadow on exit; inverse attr stored inconsistently (`devlcd.c:146,155,184`); `cursor_on/off` are no-ops (`devlcd.c:233-237`). | On gfx entry purge **both** sinks + resync VT/shadow; store inverse bit in `vt_shadow`; document no-cursor or add a visible one. | Serial/LCD stay in sync across a framebuffer app run. |
 | [x] C6 | P1 | `kputchar` emits `\r` and `\n` as two `tty_putc` calls (`devtty.c:104-105`); an IRQ echo can interleave between them. | Single atomic emit (C3). **DONE** commit `2318118`. | No stray characters between CR and LF in stress logs. ✅ |
-| [~] C7 | P1 | **Duplicate login prompt on one line:** device showed `RP2040 login: RP2040 login: ` with no CR/LF between them (seen after pressing Enter at `login:` / after a host pause). Reproduced deterministically: three back-to-back Enters at `RP2040 login:` yield `\r\n\r\n\r\nRP2040 login: RP2040 login: RP2040 login: ` — all echoed CR/LFs are emitted before the getty process re-prompts. This is an output-ordering/rendering bug (not a dropped terminator): interactive login still works, but the line is malformed and LCD/serial must mirror. | Prefix empty-line retry prompts with a bare CR so they always start at column 0 on both sinks (Linux getty keeps each prompt at the left margin even when echo and process output interleave). **DONE** source `c1d2235` (`init.c`); armm0 util built. Live `/bin/init` is root-owned, so verify after next filesystem image reload. | At `login:`, press Enter N times back-to-back: exactly one prompt per line, identical on serial and LCD; no stacked prompt after idle/reboot. |
+| [x] C7 | P1 | **Duplicate login prompt on one line:** three back-to-back Enters at `RP2040 login:` stacked all prompts on one line because echoed CR/LFs were emitted before the process re-prompted. | Prefix empty-line retry prompts with a bare CR so they start at column 0. **DONE** `c1d2235`; shipped in the rebuilt image. | **DEVICE VERIFIED:** three back-to-back Enters now yield one prompt per line, no stacking. |
 | C8 | P1 | **Late boot-output tail / interleaving:** after `RP2040 login:` appears, the tail of the kernel boot banner (e.g. `chikhin, Adriano <ala`) is still emitted, so the login prompt is visually split and username attempts look wrong. Device capture after kernel flash: `Checking root file schikhin, AdrianoCThis system is already provisioned.` and `Mounting root fs ...: warning: init version 0.9.1` — banner, fsck and init text interleaved mid-string. Verified this is late **output**, not input pollution (Enter re-prompts, `devops` echoes, then `Password:`). | Ensure all `kprintf` boot output completes (flush/drain both sinks) before `init` starts getty; make `kputchar`/`tty_putc` record-atomic so two writers cannot interleave mid-line; check `start.c` banner vs D1 deferred pump. | Boot output is contiguous and complete before the first `login:`; no banner bytes after the prompt. |
 
 ### D — Deferred work / concurrency / core1
@@ -205,7 +205,7 @@ Each phase ends with its acceptance test. Only mark issues `[x]` when the test p
   Under compile/input activity: no crash, no new drops, counters healthy. Committed
   as `207bd96`,`0ede38e`,`a28d949`,`2318118`,`326e78a`,`0b5d749`,`ae61c94`.
 
-### Phase 1 — Stop the crashes (P0 stability) — IN PROGRESS
+### Phase 1 — Stop the crashes (P0 stability) — ✅ DONE & DEVICE-TESTED
 - [x] S1: lockout-aware core1 heartbeat (flag in rawflash, suppress stale_ticks, 2s→4s).
       Commit `bd2efae`. **DEVICE SOAK: 12 write/sync (FTL lockout) cycles, 0 crashes,
       core1 heartbeat rose steadily — false-reboot fix validated.**
@@ -229,7 +229,9 @@ Each phase ends with its acceptance test. Only mark issues `[x]` when the test p
       impact; remaining cost is performance/wear. Defer batched-discard to Phase 4.
 - [x] S8: HardFault (exception 3) from long interactive shell lines — fixed by
       removing per-prompt `calloc()` from `getcwd()` (`4099881`); device-verified
-      with a 250-char line. Ships with next image reload.
+      with 100/180/250-char lines on the reflashed image, no crash.
+- **Phase 1 acceptance MET (device):** all P0 stability issues fixed and verified;
+  S5 QSPI crash log works end-to-end; long-line burst no longer faults.
 - **Phase 1 acceptance MET (device):** soaks zero reboots/crashes; heartbeats healthy;
   canary armed, no false trip; CardKB works; dirty-fs fsck fix cross-built. A 30-min
   compile soak is optional extra assurance, not a blocker.
@@ -242,9 +244,8 @@ Each phase ends with its acceptance test. Only mark issues `[x]` when the test p
       (`vt_dropped` 0→295 under burst). **DEVICE VERIFIED:** 12× separate SD `ls`,
       12× compound `ls /bin`, 8× `banner` bursts all completed with `vt_dropped=0`.
 - [ ] C1: `console_fanout` both-or-neither + equal ring sizes; C2: resolve liveness/backpressure.
-- [~] C7: duplicate/stacked `RP2040 login:` prompts on one line (new) — reproduced
-      with 3 back-to-back Enters; source fixed in `init.c` (`c1d2235`), verify after
-      image reload.
+- [x] C7: duplicate/stacked `RP2040 login:` prompts — fixed in `init.c` (`c1d2235`),
+      device-verified on the rebuilt image (one prompt per line).
 - [ ] C8: late boot-banner tail emitted after `login:` (new — ordering/flush).
 - [ ] D2/D3: fix reentry + repaint bugs.
 - [ ] C5: gfx-mode resync.
