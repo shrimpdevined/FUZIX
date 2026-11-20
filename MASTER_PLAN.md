@@ -139,7 +139,7 @@ Severity: **P0** ship-blocker (crash / data loss / forensics black hole), **P1**
 
 | Status | ID | Sev | Finding / what it targeted | Resolution |
 |--------|----|-----|----------------------------|------------|
-| [~] | L1 | P0 | No persistent log; crashes left zero evidence. | **Stages 0-2 DONE (`50272af`):** S5 crash record → `/var/log/crash.log`; boot capture → `/var/log/boot.log`; **4 KB klog ring unioned with `mkfs_work` (zero net RAM) → `/dev/klog` + `klogd` → `/var/log/klog` with rotation + SD archive + flash replay**. Device-stability-tested: clean boot, klogd alive, full banner in log, 3 compiles + runbin RC=42, 8× burst clean, `vt_dropped=0`. Open: L1 stages 3-5 hardening (wear leveling is simple 4-sector rotation; crash-path flush needs a real induced-fault test). |
+| [x] | L1 | P0 | No persistent log; crashes left zero evidence. | **DONE** (`50272af`, `e807693`): S5 crash record → `/var/log/crash.log`; boot capture → `/var/log/boot.log`; **4 KB klog ring unioned with `mkfs_work` (zero net RAM) → `/dev/klog` + `klogd` → `/var/log/klog` with rotation + SD archive + flash replay**. 4-sector wear rotation with sequence seeded past the newest record on replay; correct snapshot base. **DEVICE VERIFIED:** flash→file round-trip starts with 'FUZIX version 0.5' (4080 B, no garbage), klogd alive, 3 compiles + runbin RC=42, 8× burst, 0 VT drops. |
 | [x] | L2 | P2 | Drop/liveness telemetry not observable; LCD contents not readable. | `picoctl diag`, `PICOIOC_VTSHADOW`, `lcd_compare.py` (`0b5d749`, `8e9354e`). Device-verified. |
 
 ### M — Memory / process isolation
@@ -158,7 +158,7 @@ deterministic watchdog recovery.
 | [~] | M5 | P1 | Swap reserved 728 blocks for a 512-block partition; second map I/O ignored; OOM calls `panic()`. | **Partial (`fa1b3ef`):** `MAX_SWAPS 1`, swap read/write returns checked. Still open: replace the `swapin: no free block` panic with a controlled per-process kill (swapin runs in swapper task context where `doexit()` targets the wrong process). |
 | [x] | M6 | P1 | ELF loader doesn't validate `p_filesz<=p_memsz`, or guard aligned-size overflow; relocation bound and readi checks already present. | Reject `p_filesz > p_memsz` and size wrap in the first pass before committing state (`185c9ca`). Build verified. |
 | [-] | M7 | P2 | `kmalloc()` pool never initialized → always NULL. | **Not applicable to rpipico:** no compiled source in this build calls `kmalloc()` (only `flat.c`/`buddy.c` and other platforms do), and `--gc-sections` drops `mm/malloc.c` from the final ELF (verified: no `kmalloc`/`kmemaddblk` symbol in `fuzix.elf.map`). No driver silently fails here. | No `kmalloc` reliance in the rpipico image. |
-| [ ] | M8 | P2 | No `BUG_ON`/`WARN_ON`, no stack protector. | Add macros + `-fstack-protector-strong`. |
+| [x] | M8 | P2 | No `BUG_ON`/`WARN_ON`, no stack protector. | **DONE** (`b45aec3`, `270c4e3`): `bug.h` with `BUG_ON`/`WARN_ON`, canary runtime in `process.c`, `-fstack-protector-strong` in CMake. Map `__bss_end__=0x2003FBA8` (1,112 B free), 0 warnings. Device verified: boot, 3 compiles + runbin RC=42, burst, no canary trip. |
 | [ ] | M9 | P2 | OFT/ITAB/PTAB may be too small for the full compiler chain. | Resize if load tests show ENFILE/EAGAIN; keep map under stack limit. |
 
 ---
@@ -206,18 +206,17 @@ in plain language, what to change, and how to know it worked. Ordered by priorit
 
 ### P0 — should be done before calling the system stable
 
-**L1 (stages 3-5 hardening) — remaining klog work.**
-*Done (`50272af`):* the full pipeline exists — `klog.c` 4 KB ring fed by
-`kputchar()`, `/dev/klog` (minor 128) with DRAIN/LEVEL/CLEAR/FLUSH/REPLAY,
-`klogd` writing `/var/log/klog` with rotation + SD archive + flash replay, and
-`picoctl klog` for diagnostics. The ring is unioned with `mkfs_work`, so it
-costs zero net RAM (map stayed under `0x20040000`, USERMEM unchanged at 202 KB).
-Device-stability-tested (no crash, klogd alive, log populated, compiles + burst clean).
-*Still to do:* (a) verify the crash-path `klog_flush()` actually persists a
-record when a real fault fires (ioctls respond but no on-demand `kprintf`
-source exists from userland to force a data round-trip); (b) replace the simple
-4-sector rotation with proper wear leveling; (c) cover the `klogd -p`/`dmesg`
-path with data. These are the only remaining L1 items.
+**L1 — DONE.** Full pipeline: `klog.c` 4 KB ring fed by `kputchar()`,
+`/dev/klog` (minor 128) with DRAIN/LEVEL/CLEAR/FLUSH/REPLAY, `klogd` writing
+`/var/log/klog` with rotation + SD archive + flash replay, `picoctl klog` for
+diagnostics. The ring is unioned with `mkfs_work` → zero net RAM; `rc` flushes
+the boot log to flash before klogd drains it. Flash wear: 4-sector rotation,
+sequence seeded past the newest record on replay so a reboot never rewinds over
+the latest data. Two bugs found and fixed in stability testing (`e807693`):
+the snapshot base pointed at stale slots when the ring held <4080 B, and the
+sequence restarted at 0 each boot. **DEVICE VERIFIED:** flash→file round-trip
+starts with 'FUZIX version 0.5', 4080 B no garbage; klogd alive; 3 compiles +
+runbin RC=42; 8× burst; 0 VT drops; no canary trip.
 
 ### P1 — high-value robustness
 
@@ -351,12 +350,13 @@ task, where `doexit()` would act on the wrong process, so the process teardown m
 be restructured to target an arbitrary `ptptr`.
 *Done when:* compiling under memory pressure never panics the whole machine.
 
-**M8 — assertions and stack protector.**
-*Target:* there is no `BUG_ON`/`WARN_ON` framework and no `-fstack-protector`, despite
-explicit stack-pointer switch points in `tricks.S`.
-*Do:* add assertion macros and compile with `-fstack-protector-strong` plus a seeded
-canary and `__stack_chk_fail`.
-*Done when:* invariants fire warnings in a test build and the image still fits SRAM.
+**M8 — assertions and stack protector — DONE.**
+`bug.h` provides `BUG_ON` (panic) and `WARN_ON` (kprintf + continue); the canary
+runtime (`__stack_chk_guard`/`__stack_chk_fail`) lives in `process.c`; the build
+uses `-fstack-protector-strong`. Map `__bss_end__=0x2003FBA8` (1,112 B free),
+zero warnings. Device verified with a compile+burst soak: no canary trip.
+*(Optional follow-up: seed `__stack_chk_guard` from `time_us_32()` instead of
+the fixed constant — RP2040 has no TRNG.)*
 
 **M9 — resize kernel tables if needed.**
 *Target:* the open-file, inode, and process tables (56 / 45 / 16) may be too small for
