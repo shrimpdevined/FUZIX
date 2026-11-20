@@ -157,7 +157,7 @@ deterministic watchdog recovery.
 | [ ] | M4 | P1 | User stack (7 KB) can underflow into kernel tables; headroom never measured. | Sentinel + high-water check; `-fstack-usage`. |
 | [ ] | M5 | P1 | Swap reserved 728 blocks for a 512-block partition; second map I/O ignored; OOM calls `panic()`. | `MAX_SWAPS 1`, check I/O, kill the offending process. |
 | [ ] | M6 | P1 | ELF loader doesn't validate `p_filesz<=p_memsz` or relocations; ignores read results. | Validate fields and check every read. |
-| [ ] | M7 | P2 | `kmalloc()` pool never initialized → always NULL. | Wire up the pool or remove dead reliance. |
+| [-] | M7 | P2 | `kmalloc()` pool never initialized → always NULL. | **Not applicable to rpipico:** no compiled source in this build calls `kmalloc()` (only `flat.c`/`buddy.c` and other platforms do), and `--gc-sections` drops `mm/malloc.c` from the final ELF (verified: no `kmalloc`/`kmemaddblk` symbol in `fuzix.elf.map`). No driver silently fails here. | No `kmalloc` reliance in the rpipico image. |
 | [ ] | M8 | P2 | No `BUG_ON`/`WARN_ON`, no stack protector. | Add macros + `-fstack-protector-strong`. |
 | [ ] | M9 | P2 | OFT/ITAB/PTAB may be too small for the full compiler chain. | Resize if load tests show ENFILE/EAGAIN; keep map under stack limit. |
 

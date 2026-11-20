@@ -318,7 +318,33 @@ int tty_ioctl(uint_fast8_t minor, uarg_t request, char *data)
 		break;
 	}
 	case TIOCINQ:
-		return uput(&ttyinq[minor].q_count, data, 2);
+	{
+		/* In canonical mode a read() returns at most one line, so
+		 * report only the bytes up to the next newline (I6).  Non-
+		 * canonical mode reports the whole queued count. */
+		uint16_t avail = ttyinq[minor].q_count;
+		if ((t->termios.c_lflag & ICANON) && avail) {
+			struct s_queue *q = &ttyinq[minor];
+			queueptr_t p = q->q_head;
+			uint16_t n = 0;
+			int found = 0;
+			irqflags_t irq = di();
+			while (n < avail) {
+				if (GETQ(p) == '\n') {
+					found = 1;
+					n++;            /* include the newline itself */
+					break;
+				}
+				n++;
+				if (++p >= q->q_base + q->q_size)
+					p = q->q_base;
+			}
+			irqrestore(irq);
+			/* No complete line yet: a canonical read() would block. */
+			avail = found ? n : 0;
+		}
+		return uputw(avail, data);
+	}
 	case TIOCFLUSH:
 		clrq(&ttyinq[minor]);
 		/* Also drain any device-side staging ring (eg USB CDC on RP2040),
@@ -478,9 +504,15 @@ sigout:
 	}
 
 	wr = insq(q, c);
-	if (wr && (!canon || c != t->termios.c_cc[VEOF]))
-		tty_echo(minor, c);
-	else
+	/* Beep only when the queue actually rejected the character.  A
+	 * canonical ^D (VEOF) is a successful insert that is simply not
+	 * echoed (I6) -- the old `else` branch beeped on every ^D. */
+	if (wr) {
+		if (canon && c == t->termios.c_cc[VEOF]) {
+			/* no echo for VEOF, but this is not an error */
+		} else
+			tty_echo(minor, c);
+	} else
 		tty_putc(minor, '\007');	/* Beep if no more room */
 
 	if (!canon || c == t->termios.c_cc[VEOL] || c == '\n'
