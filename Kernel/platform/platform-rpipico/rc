@@ -5,6 +5,10 @@ setdate -y
 remount -n / rw
 prtroot >/etc/mtab
 
+# Persist the previous boot's fatal-exception record to a plain file so it
+# survives USB re-enumeration and can be read with cat (MASTER_PLAN S5/S8).
+picoctl crashlog /var/log/crash.log
+
 # Check and mount the separate internal user filesystem (hda2) before
 # firstboot creates the account home.  mount -a also picks up the SD card
 # at /mnt/sd when one is present.

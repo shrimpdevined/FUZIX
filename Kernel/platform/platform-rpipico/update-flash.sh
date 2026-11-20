@@ -192,6 +192,8 @@ bget ../../../Applications/util/mount
 bget ../../../Applications/util/od
 bget ../../../Applications/util/pagesize
 bget ../../../Applications/util/passwd
+# picoctl is needed at boot by /etc/rc to persist the QSPI crash record.
+bget utils/picoctl picoctl
 bget ../../../Applications/util/printenv
 bget ../../../Applications/util/prtroot
 bget ../../../Applications/util/ps
@@ -273,6 +275,7 @@ chmod 0755 mount
 chmod 0755 od
 chmod 0755 pagesize
 chmod 4755 passwd
+chmod 0755 picoctl
 chmod 0755 printenv
 chmod 0755 prtroot
 chmod 0755 ps
