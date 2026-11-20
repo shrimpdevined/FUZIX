@@ -87,13 +87,22 @@ void flash_dev_init(void)
         nand.num_blocks * 4, lba / 2, XIP_NOCACHE_NOALLOC_BASE + FLASH_OFFSET);
 	
 	blk->transfer = transfer_cb;
-	/* NOTE: blk->flush = flush_cb (dhara_map_sync) was deliberately removed.
-	 * d_flush() is called from bdput() ONCE PER DIRTY BUFFER, so wiring a full
-	 * dhara GC checkpoint here made every sync()/mount during boot run up to
-	 * NBUFS garbage collections — init stalled for many seconds.  dhara already
-	 * journals its metadata and rolls back safely on unclean shutdown, so a
-	 * full GC checkpoint on every OS sync is unnecessary; leave flush unset
-	 * (d_flush becomes a cheap no-op) to restore fast boot. */
+	/* NOTE: blk->flush (dhara_map_sync) is deliberately left unset.
+	 *
+	 * dhara_map_sync() forces a full journal GC checkpoint; on this flash it
+	 * can erase/program several blocks and hold the multicore lockout for a
+	 * noticeable time.  It was originally wired here but d_flush() used to be
+	 * called ONCE PER DIRTY BUFFER from bdput(), so every sync()/mount during
+	 * boot ran up to NBUFS checkpoints and init stalled for many seconds.
+	 *
+	 * MASTER_PLAN F1 now calls d_flush() at most once per mounted device per
+	 * sync(), so the per-buffer explosion is gone.  We still leave the
+	 * callback unset: dhara already journals every metadata update and rolls
+	 * back safely on an unclean shutdown, so a forced GC checkpoint on every
+	 * OS sync buys no extra durability and risks a multi-second stall (and a
+	 * spurious core1-wedge watchdog reset) under compiler load.  d_flush() is
+	 * therefore a cheap no-op for this device; any device that does need a
+	 * hardware flush can supply one and get the once-per-sync barrier. */
     #ifdef CONFIG_TRIM
         blk->trim = trim_cb;
     #endif

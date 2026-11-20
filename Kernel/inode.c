@@ -376,6 +376,36 @@ int dev_openi(inoptr *ino, uint16_t flag)
         return 0;
 }
 
+/*
+ *	Flush every mounted block device exactly once (MASTER_PLAN F1).
+ *
+ *	A single device can be mounted more than once (partitions), so skip
+ *	duplicates.  d_flush() is a cheap no-op for devices without a flush
+ *	callback (eg the Dhara-backed flash, which journals its metadata and
+ *	rolls back safely on an unclean shutdown); a device that does have a
+ *	callback sees one barrier per sync() rather than one per dirty buffer.
+ *	Return -1 (with udata.u_error set) if any flush failed.
+ */
+static int sync_flush_devices(void)
+{
+	regptr struct mount *m;
+	regptr struct mount *n;
+	int ret = 0;
+
+	for (m = fs_tab; m < fs_tab + NMOUNTS; m++) {
+		if (m->m_dev == NO_DEVICE)
+			continue;
+		for (n = fs_tab; n < m; n++)
+			if (n->m_dev == m->m_dev)
+				break;
+		if (n < m)
+			continue;
+		if (d_flush(m->m_dev))
+			ret = -1;
+	}
+	return ret;
+}
+
 void sync(void)
 {
 	regptr inoptr ino;
@@ -409,8 +439,10 @@ void sync(void)
 			}
 		}
 	}
-	/* WRS: also call d_flush(dev) here for each dirty dev ? */
-	bufsync();		/* Clear buffer pool */
+	bufsync();		/* Write back all dirty buffers */
+	/* MASTER_PLAN F1: one flush per mounted device, after all buffers have
+	 * been written.  Propagate failures to the caller's u_error. */
+	sync_flush_devices();
 }
 
 #ifdef CONFIG_BLOCK_SLEEP

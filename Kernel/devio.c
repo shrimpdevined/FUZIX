@@ -207,21 +207,25 @@ static void bdput(regptr bufptr bp)
 		bdwrite(bp);
 		bp->bf_dirty = false;
 		bunlock_s(bp);
-		d_flush(bp->bf_dev);
+		/* MASTER_PLAN F1: no per-buffer d_flush here.  Calling a real
+		 * device flush once per dirty buffer made sync()/mount run a full
+		 * Dhara GC checkpoint NBUFS times and stalled boot for seconds.
+		 * sync() now flushes each dirty device exactly once as a barrier;
+		 * bdrop() below flushes once for a media change/close. */
 	} else
 		bunlock_s(bp);
 }
 
 /*
  * The low level logic for sync(). We write back each dirty buffer that
- * belongs to a device.
+ * belongs to a device.  We deliberately do NOT flush the device here: the
+ * caller (sync()) issues one d_flush() per mounted device after all buffers
+ * have been written, which is both cheaper and a real ordering barrier.
  */
 void bufsync(void)
 {
 	regptr bufptr bp;
 
-	/* FIXME: this can generate a lot of d_flush calls when you have
-	   plenty of buffers */
 	for (bp = bufpool; bp < bufpool_end; ++bp) {
 		if (bp->bf_dev != NO_DEVICE)
 		        bdput(bp);
@@ -265,13 +269,20 @@ bufptr bfind(uint16_t dev, blkno_t blk)
 void bdrop(uint16_t dev)
 {
 	regptr bufptr bp;
+	bool wrote = false;
 
 	for (bp = bufpool; bp < bufpool_end; ++bp) {
 		if (bp->bf_dev == dev) {
+			if (bp->bf_dirty)
+				wrote = true;
 			bdput(bp);
 		        bp->bf_dev = NO_DEVICE;
                 }
 	}
+	/* bdput() no longer flushes per buffer (MASTER_PLAN F1).  Preserve the
+	 * close/media-change semantics with a single flush for this device. */
+	if (wrote)
+		d_flush(dev);
 }
 
 bufptr freebuf(void)
