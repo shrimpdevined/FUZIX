@@ -59,6 +59,9 @@ void vt_pump(unsigned int budget);
 void vt_crash_tail(unsigned char *dst, unsigned int n);
 /* Current VT cursor position (for LCD shadow observability). */
 void vt_get_cursor(uint8_t *x, uint8_t *y);
+/* Boot console capture (L1/C8). */
+void bootlog_putc(uint_fast8_t minor, uint_fast8_t c);
+unsigned int bootlog_get(unsigned char *dst, unsigned int cap);
 /* Mode switcher functions */
 void vt_save(struct vt_switch *vt);
 void vt_load(struct vt_switch *vt);

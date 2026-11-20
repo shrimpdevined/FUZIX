@@ -133,6 +133,15 @@ int plt_dev_ioctl(uarg_t request, char *data)
         plt_bootsel_enter();
         return 0;   /* only if the bootrom declined to reboot */
     }
+    if (request == PICOIOC_BOOTLOG)
+    {
+        /* Return the first 512 bytes of console output (boot text that
+         * the USB TX ring dropped before host enumeration). */
+        unsigned char buf[512];
+        unsigned int n = bootlog_get(buf, sizeof(buf));
+        uputw((uint16_t)n, data);
+        return uput(buf, data + 2, n);
+    }
     if (request == PICOIOC_VTSHADOW)
     {
         /* Snapshot exactly what is rendered on the LCD so userspace can

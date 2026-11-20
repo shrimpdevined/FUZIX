@@ -17,6 +17,8 @@
 
 /* VT/LCD shadow buffer snapshot (MASTER_PLAN C1): read exactly what is
  * rendered on the LCD so serial and LCD can be compared byte-for-byte. */
+#define PICOIOC_BOOTLOG 0x0005
+
 #define PICOIOC_VTSHADOW 0x0004
 struct pico_vtshadow {
     uint8_t cursorx;

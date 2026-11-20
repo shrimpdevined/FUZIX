@@ -15,6 +15,7 @@ int main(int argc, char **argv)
         puts("\tdiag\tShow console/VT drop counters and core1 liveness.");
         puts("\tcrashlog [file]\tDump last fatal-exception record (to file).");
         puts("\tvtshadow\tDump the LCD shadow buffer (serial vs LCD stream).");
+        puts("\tbootlog [file]\tDump captured early boot console output.");
         return 0;
     }
     int fd = open("/dev/sys", O_RDWR, 0);
@@ -93,6 +94,35 @@ int main(int argc, char **argv)
         fputs("\n--- end ---\n", out);
         if (out != stdout)
             fclose(out);
+        close(fd);
+        return 0;
+    }
+
+    if (strcmp(argv[1], "bootlog") == 0)
+    {
+        unsigned char buf[512];
+        uint16_t n;
+        FILE *out = stdout;
+        if (argc >= 3)
+        {
+            out = fopen(argv[2], "w");
+            if (out == NULL)
+            {
+                perror("cannot create bootlog file");
+                close(fd);
+                return 1;
+            }
+        }
+        if (ioctl(fd, PICOIOC_BOOTLOG, buf) != 0)
+        {
+            perror("Failed to read boot log");
+            if (out != stdout) fclose(out);
+            close(fd);
+            return 1;
+        }
+        n = (uint16_t)buf[0] | ((uint16_t)buf[1] << 8);
+        fwrite(buf + 2, 1, n, out);
+        if (out != stdout) fclose(out);
         close(fd);
         return 0;
     }

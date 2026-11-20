@@ -50,6 +50,7 @@ add_executable(fuzix
 	tricks.S
 	core1.c
 	crashlog.c
+	bootlog.c
 	devgpio.c
 	usbdescriptors.c
 	devlcd.c

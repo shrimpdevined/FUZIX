@@ -133,6 +133,9 @@ void tty_putc(uint_fast8_t minor, uint_fast8_t c)
         irqflags_t irq = di();
         usbconsole_putc(1, c);
         vtdefer(c);
+        /* Capture boot output before it can be lost to the USB TX ring
+         * overflow during pre-enumeration (MASTER_PLAN L1/C8). */
+        bootlog_putc(1, c);
         irqrestore(irq);
         /* Bound the deferred queue from the producer side (MASTER_PLAN D1).
          * plt_idle_hook only runs when nready==0, so during a sustained
