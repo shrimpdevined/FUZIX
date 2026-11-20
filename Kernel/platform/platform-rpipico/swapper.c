@@ -397,7 +397,15 @@ void swapin(ptptr p, uint16_t map)
         /* find_free_block can return NULL on OOM; the old unchecked
          * `b - allocation_map` produced a wild pointer and corrupted kernel
          * RAM (panic: inode freed / EXCEPTION 3).  Never swap in partially. */
-        if (!b) panic("swapin: no free block");
+        if (!b) {
+            /* M5: OOM while swapping a process back in.  A true per-process
+             * kill needs a context switch to the victim and a full page-table
+             * teardown, which is unsafe from the swapper's context.  Fail
+             * loudly with the victim's identity so the reset record is
+             * diagnostic, rather than a bare panic. */
+            kprintf("swapin: OOM pid %d (no free block)\n", p->p_pid);
+            panic("swapin: no free block");
+        }
         int blockindex = b - allocation_map;
         void* p = (void*)PROGBASE + blockindex*BLOCKSIZE;
 
