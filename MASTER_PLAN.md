@@ -424,6 +424,48 @@ soaks green and the CardKB verified on hardware.
 
 ---
 
+## 6b. RAM budget and reclamation analysis (5-agent swarm, 2026-11-20)
+
+**Verified facts from `build/fuzix.elf.map`:**
+- `__bss_end__ = 0x2003F9C8`, so **only 1,592 B** of main RAM is free below
+  `0x20040000` (the earlier "2.6 KB" figure was from a stale build — do not use it).
+- Two 4 KB scratch banks exist above that: SCRATCH_X `0x20040000–0x20040FFF`
+  (core1 stack uses the top 2 KB, ~2 KB free below) and SCRATCH_Y
+  `0x20041000–0x20041FFF` (core0 stack top 2 KB, ~2 KB free below). No single
+  contiguous 4 KB block is currently free.
+- Heap is 0 bytes (`PICO_HEAP_SIZE=0x0`); alarm pool disabled — nothing to reclaim.
+- Kernel image in flash ends at `0x10019A08` (~104.7 KB); FTL starts at `0x34000`.
+
+**Display-redundancy hypothesis — DISPROVEN.** There is exactly ONE screen copy:
+`vt_shadow[40][80]` = 3,200 B in `devlcd.c:29`. `CONFIG_VT_SIMPLE` is undefined, so
+there is no generic `vtbuf`/`VT_BASE`; the panel GRAM is external and write-only.
+There is no framebuffer allocation and no display process. `vt_shadow` must stay —
+it is what preserves text while SD owns SPI. Do not remove it.
+
+**Top RAM consumers (kernel BSS):** `bufpool` 10,400 B (20×520), `usb_console_table`
+4,176 B (4×1044), `vtd_buf` 4,096 B, `mkfs_work` 4,096 B, `fat_paths` 4,096 B,
+`i_tab` 3,600 B, `vt_shadow` 3,200 B, `ttybuf` 2,560 B, `ptab` 1,536 B.
+
+**Ranked reclamation options for the L1 4 KB klog ring:**
+
+| Option | Bytes | Risk | Notes |
+|--------|-------|------|-------|
+| **A. Shrink `USERMEM` 202→198 KB** (`config.h:106`) | 4,096 | LOW | `progbase` has 20,480 B slack beyond `PROGTOP`; only 4 code refs; `PROGSIZE`/`SWAP_SIZE` unchanged. This is the L1 design's intended move. |
+| **B. Union klog ring with `mkfs_work[4096]`** (`devfat.c:704`) | 4,096 | MED | Buffer used only by the `f_mkfs` ioctl; `rc` never calls mkfs. Flush/suspend klog around mkfs. No map change. |
+| C. `mkfs_work` 4096→1024 | 3,072 | LOW | mkfs speed drops only; `f_mkfs` needs ≥512 B. |
+| D. `NBUFS` 20→12 (`config.h:170`) | 4,160 | MED | Needs FS/compiler soak; `bufpool` = 20×520 B. |
+| E. Asymmetric USB rings (RX 512→128) + `vtd_buf` 4096→2048 + crash tail 428→128 + drop `boot_buf` | ~4,400 | MED | Keeps TX ring and `ttyinq` intact; re-verify D1 bursts. |
+| F. Second read cursor over `vtd_buf` + 256 B flash staging | 4,096 | MED | All console bytes already pass through `vtd_buf`; no separate ring needed. Bursts >4 KB lose log bytes. |
+| G. `NUM_DEV_TTY_USB` 4→2 | 2,088 | HIGH (functional) | Removes tty3/tty4. |
+
+**Recommendation:** Option **A** is simplest and lowest-risk (exactly 4,096 B, 20 KB slack
+remains); Option **B** is the no-map-change alternative if USERMEM must stay at 202 KB.
+Either can be paired with the flash-staging durability mechanism (one 256 B page,
+stolen from the dead `boot_buf`) so the ring need not be persistent RAM.
+Do **not** touch `vt_shadow`, the TX ring, `ttyinq`, `journal_buf`, or `crash_ram_rec`.
+
+---
+
 ## 7. Agent report index (raw findings lineage)
 
 | Agent session | Focus | Folded into |
@@ -438,5 +480,10 @@ soaks green and the CardKB verified on hardware.
 | e0b9b9554ffe… | Stability crash/hang audit | S, I1 |
 | e0b9b954effd… | Logging design | L |
 | e0b9b4114ffe… | Memory/process isolation | M |
+| RAM-swarm #1 | Total RAM budget / map | §6b |
+| RAM-swarm #2 | Display buffer redundancy | §6b |
+| RAM-swarm #3 | Console / USB rings | §6b |
+| RAM-swarm #4 | Kernel tables / scratch buffers | §6b |
+| RAM-swarm #5 | Lateral alternatives (SCRATCH_X/Y, flash staging) | §6b |
 
 *All 10 agent reports integrated; no deep-dives pending.*
