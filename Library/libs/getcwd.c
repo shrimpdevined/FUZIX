@@ -1,7 +1,11 @@
 /* These functions find the absolute path to the current working directory.
  *
- * They don't use malloc or large amounts of stack space.
- */  
+ * MASTER_PLAN S8: use a static DIR via opendir_r/closedir_r so the prompt's
+ * getcwd() never calls malloc.  The shell shares its sbrk break with libc
+ * malloc; a calloc(576) from opendir() on every prompt corrupted the free
+ * list under long-line load and faulted in malloc().  A static buffer is
+ * safe here: recurser() finishes before search_dir() uses it.
+ */
 #include <unistd.h>
 #include <errno.h>
 #include <dirent.h>
@@ -16,6 +20,7 @@ static int path_size;
 static uint root_dev;
 static uint root_ino;
 static struct stat st;
+static DIR dirbuf;		/* static DIR, no calloc (S8) */
 
 static char *search_dir(uint this_dev, uint this_ino) 
 {
@@ -40,7 +45,7 @@ static char *search_dir(uint this_dev, uint this_ino)
 		++slen;
 	}
 	++slen;
-	if ((dp = opendir(path_buf)) == 0)
+	if ((dp = opendir_r(&dirbuf, path_buf)) == 0)
 		return NULL;
 	while ((d = readdir(dp)) != 0) {
 		if (slow_search || this_ino == d->d_ino) {
@@ -52,13 +57,13 @@ static char *search_dir(uint this_dev, uint this_ino)
 			if (stat(path_buf, &st) < 0)
 				continue;
 			if (st.st_ino == this_ino && st.st_dev == this_dev) {
-				closedir(dp);
+				closedir_r(dp);
 				return path_buf;
 			}
 		}
 		    /* else ??? */ 
 	}
-	closedir(dp);
+	closedir_r(dp);
 	errno = ENOENT;
 	return NULL;
 }
