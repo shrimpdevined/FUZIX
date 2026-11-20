@@ -33,9 +33,14 @@ void devkb_init(void) {
 }
 
 static void kb_send_esc_seq(char final_char) {
+    /* Keep the three-byte escape sequence atomic with respect to other
+     * input handlers so ESC '[' cannot be split by a USB keystroke
+     * (MASTER_PLAN I3).  di() nests safely inside the tick's di(). */
+    irqflags_t irq = di();
     tty_inproc(1, 0x1B);
     tty_inproc(1, '[');
     tty_inproc(1, final_char);
+    irqrestore(irq);
 }
 
 void devkb_poll(void) {
