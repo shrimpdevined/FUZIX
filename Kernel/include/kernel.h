@@ -21,6 +21,7 @@ From UZI by Doug Braun and UZI280 by Stefan Nitschke.
 #include "fpu.h"
 
 #include "panic.h"
+#include "bug.h"		/* BUG_ON()/WARN_ON() assertion framework (M8) */
 
 #ifndef NULL
 #define NULL (void *)0

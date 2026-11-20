@@ -297,7 +297,8 @@ inoptr i_open(register uint16_t dev, uint16_t ino)
     /* Maybe make this DEBUG only eventually - the fs_tab_get cost
        is higher than ideal */
     if(ino < ROOTINODE || ino >= (m->m_fs.s_isize - 2) * INO_PER_BLOCK) {
-        kputs("i_open: bad inode number\n");
+        /* Bad inode number: warn with file:line and fail the open (M8). */
+        WARN_ON(1);
         return NULLINODE;
     }
 

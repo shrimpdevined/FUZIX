@@ -484,8 +484,10 @@ void timer_interrupt(void)
 		q = &alarms;
 		while(*q) {
 			p = *q;
-			if (p->p_status == P_EMPTY)
-				panic("dead timer");
+			/* An armed alarm/timeout must never point at a freed slot.
+			 * Was an ad-hoc panic(); use the M8 assertion framework so
+			 * the failing file/line is reported on the console. */
+			BUG_ON(p->p_status == P_EMPTY);
 			if (p->p_alarm) {
 				p->p_alarm--;
 				if (!p->p_alarm)
@@ -1060,6 +1062,23 @@ void NORETURN panic(char *deathcry)
 	plt_monitor();
 
 	for(;;);
+}
+
+/*
+ * Stack protector runtime (MASTER_PLAN M8).  -fstack-protector-strong makes
+ * GCC reference __stack_chk_guard (the word copied into each protected stack
+ * frame) and call __stack_chk_fail() when the stored copy no longer matches
+ * on return.  We provide both here rather than relying on newlib so the seed
+ * is deliberate and a detected overflow produces a useful panic instead of
+ * newlib's abort().  The seed contains a zero byte so a NUL-terminated string
+ * overflow cannot reproduce it.  The guard itself costs just 4 bytes of
+ * .data; the per-function canary checks live on the stack and in .text.
+ */
+uintptr_t __stack_chk_guard = (uintptr_t)0x5AA5A500u;
+
+void NORETURN __stack_chk_fail(void)
+{
+	panic("stack protector: canary corrupted");
 }
 
 #ifdef CONFIG_SWAPPER
