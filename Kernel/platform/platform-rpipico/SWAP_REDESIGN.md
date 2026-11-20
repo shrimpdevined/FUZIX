@@ -263,6 +263,41 @@ Rollback at any stage: revert the stage's commit; the stage-0 UF2
 
 ---
 
+## 5a. BOOT-LOOP ROOT CAUSE — CONFIRMED & FIXED (`d18eab6`)
+
+A 20-agent full-source audit found the actual cause. It was **not** the FTL,
+the watchdog, XIP timing, or swap I/O. It was a regression in `sync()`:
+
+* Commit `1a4fa8c` (F3) deleted `blkfromk(&m->m_fs, buf, 0, sizeof(filesys))`
+  from `Kernel/inode.c:sync()`.
+* `bread(dev, 1, 1)` (rewrite=1) skips the disk read and returns a recycled
+  LRU buffer containing **stale data** (e.g. LBA 1024's contents).
+* `bfree(buf, 2)` wrote that payload straight to block 1 of hda1 = absolute
+  LBA 9 (the superblock). On the next boot `s_mounted` read `0x3CF9` instead
+  of `SMOUNTED 0x31C6` -> `fmount()` NULL -> `panic("no root")` -> reset loop.
+* This is an exact match for the byte-level evidence (LBA 9 holding LBA
+  1024's data). The FTL was innocent; reflashing only bought one good boot
+  because the next `sync()` re-corrupted the superblock.
+
+Fixes applied (`d18eab6`):
+1. `Kernel/inode.c`: restore `blkfromk()` before `bfree()` in `sync()`.
+2. `Applications/util/fsck-fuzix.c:414`: `dwrite(ino.i_addr[19])`, not loop
+   index `b` (was clobbering blocks 0-255, including the superblock);
+   `:877-878` store `dnum` and write `dindb`, not `indb`.
+3. `Applications/util/swapon.c`: `lseek()` to block 1 before the filesystem
+   magic check (was re-reading block 0, so swapon could be aimed at hda1).
+4. `Kernel/start.c`: compiled-in `BOOTDEVICE` is retryable (bounded), so a
+   transient mount failure no longer panics on the first retry.
+5. `devflash.c`: `blk->flush = flash_sync` checkpoint barrier + resume-error
+   report; `rc`: swapon re-enabled; full UF2 regenerated (was 1 block short);
+   `reflash.sh` uses `-f` and 17/17 image-layout tests pass.
+
+**Verified on device:** full-image reflash, 3 back-to-back compiles produce
+valid binaries with no OOM, `sync`, forced reboot -> `Mounting root fs: OK`,
+no panic; `free 182/0/182`; pipes 5/5; `vt_dropped 0`.
+
+---
+
 ## 5b. Boot-loop mechanism (watchdog/reset audit, 2026-11-20)
 
 A separate reset-path audit established that the observed loop is **not** a
