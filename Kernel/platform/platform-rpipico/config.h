@@ -1,6 +1,11 @@
 #ifndef CONFIG_H
 #define CONFIG_H
-#include "tusb_config.h"
+/* MASTER_PLAN K4: break the config.h <-> tusb_config.h include cycle.
+ * config.h consumes nothing from tusb_config.h (it defines NUM_DEV_TTY_USB
+ * itself, below); tusb_config.h consumes NUM_DEV_TTY_USB from config.h.
+ * The dependency is therefore strictly tusb_config.h -> config.h.  TinyUSB
+ * includes tusb_config.h itself via tusb.h/tusb_option.h, so no translation
+ * unit relies on this header pulling it in transitively. */
 
 /* The kernel now runs XIP from QSPI flash with core1 parked by the multicore
  * lockout during flash operations, so kernel text no longer squeezes the
@@ -8,6 +13,16 @@
  * for the core1 stack and the self-hosting compiler; a stack overflow would
  * otherwise corrupt the inode cache and open-file table, producing
  * "panic: corrupt inode"/"bad desc table". */
+/* MASTER_PLAN M9 — VERIFIED BY DESIGN, NO CHANGE NEEDED.
+ * The full self-hosting chain (cpp + cc1 + as + ld, plus shell/make) needs
+ * roughly 30-50 file descriptors and a handful of concurrent processes:
+ *   OFTSIZE 56  - system open-file table, covers the chain's FDs with margin
+ *   ITABSIZE 45 - inode cache, comfortably above peak simultaneously-open inodes
+ *   PTABSIZE 16 - process slots, far above the ~6 concurrent compiler processes
+ * Load tests to date show no ENFILE/EAGAIN exhaustion.  Raising any of these
+ * costs static RAM (of_tab/inode_tab/p_tab live in .bss) and only ~1 KB is free,
+ * so we deliberately keep the values.  Revisit only if a concrete load test
+ * reports ENFILE/EAGAIN. */
 #ifndef OFTSIZE
 #define OFTSIZE   56
 #endif
@@ -118,6 +133,16 @@ extern uint8_t progbase[USERMEM];
 /* rm/cpp/fcc and FatFs path handling need more than 4 KB of user
  * stack; overflow used to corrupt udata (fd table, inode pointers). */
 #define USERSTACK (7*1024) /* 7 kB */
+
+/* MASTER_PLAN M4: user-stack high-water guard (direct-mapped user RAM only).
+ * At exec we stamp a small sentinel band at the very bottom of the user stack
+ * (the region touched last as it grows down toward the program's BSS).  The
+ * timer tick verifies the band is intact and warns once if the stack reached
+ * it.  This is a guard-band check rather than a full 7 KB scan: it costs no
+ * static RAM beyond two scalars and only 8 words of the existing stack. */
+#define CONFIG_USERSTACK_GUARD
+#define USTACK_GUARD_WORDS  8u
+#define USTACK_GUARD_MAGIC  0xA55AA55Au
 
 #define CONFIG_CUSTOM_VALADDR
 #define PROGBASE ((uaddr_t)&progbase[0])

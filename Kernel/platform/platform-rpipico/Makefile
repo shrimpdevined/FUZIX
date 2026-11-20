@@ -43,6 +43,18 @@ ifeq (, $(shell which picotool))
 PICOTOOL=build/_deps/picotool/picotool
 endif
 
+# MASTER_PLAN K4: single source of truth for the flash layout used by the
+# `image` target below.  QSPI_FLASH_KB and KERNEL_FLASH_KB mirror the 2 MB
+# flash size and globals.h (FLASH_OFFSET = 208 KB) / config.h's partition map;
+# the FTL size and UF2 load offset are DERIVED from them, so changing the
+# kernel reservation in one place updates every consumer here.  Values are
+# unchanged: FTL = 2048-208 = 1840 KB, UF2 = 0x10000000+0x34000 = 0x10034000.
+QSPI_FLASH_KB   := 2048
+KERNEL_FLASH_KB := 208
+FTL_FLASH_KB    := $(shell expr $(QSPI_FLASH_KB) - $(KERNEL_FLASH_KB))
+FTL_ERASE_BLK   := 0x1000
+FTL_UF2_OFFSET  := $(shell printf '0x%X' $$((0x10000000 + $(KERNEL_FLASH_KB)*1024)))
+
 include ../../../version.mk
 
 build/fuzix.elf: ../../version.c build/Makefile
@@ -62,8 +74,8 @@ build/Makefile: CMakeLists.txt $(wildcard ../../*.[chS]) $(wildcard ../../*/*.[c
 
 image:: world
 	./update-flash.sh
-	../../../Standalone/mkftl -s 1840 -e 0x1000 -g 10 filesystem.img -o filesystem.ftl
-	${PICOTOOL} uf2 convert filesystem.ftl -t bin filesystem.uf2 -o 0x10034000 ${PICOTOOLFLAGS}
+	../../../Standalone/mkftl -s $(FTL_FLASH_KB) -e $(FTL_ERASE_BLK) -g 10 filesystem.img -o filesystem.ftl
+	${PICOTOOL} uf2 convert filesystem.ftl -t bin filesystem.uf2 -o $(FTL_UF2_OFFSET) ${PICOTOOLFLAGS}
 	cat build/fuzix.uf2 filesystem.uf2 > fuzix_pico_complete.uf2
 
 diskimage: image

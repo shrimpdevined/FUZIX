@@ -12,6 +12,12 @@
 #include <audio.h>
 #include <timer.h>
 
+/* MASTER_PLAN M4: platform user-stack guard.  Implemented in
+ * syscall_execelf32.c for directly-mapped user RAM (rpipico config.h). */
+#ifdef CONFIG_USERSTACK_GUARD
+extern void plt_userstack_guard_check(void);
+#endif
+
 /* psleep() puts a process to sleep on the given event.  If another
  * process is runnable, it switches out the current one and starts the
  * new one.  Normally when psleep is called, the interrupts have
@@ -530,6 +536,12 @@ void timer_interrupt(void)
 		} else	/* Nobody else to run, user gets new time quantum */
 			runticks = 0;
 	}
+#endif
+	/* MASTER_PLAN M4: verify the user-stack high-water guard each tick
+	 * (skip while swapping, when user memory may not be mapped). */
+#ifdef CONFIG_USERSTACK_GUARD
+	if (!inswap)
+		plt_userstack_guard_check();
 #endif
 }
 

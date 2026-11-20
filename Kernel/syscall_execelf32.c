@@ -7,6 +7,48 @@
 
 #undef DEBUG
 
+#ifdef CONFIG_USERSTACK_GUARD
+/* MASTER_PLAN M4: user-stack high-water guard.
+ *
+ * The 7 KB user stack starts at the top of the process image and grows DOWN
+ * toward dynamic (the top of BSS).  A guard band of USTACK_GUARD_WORDS words
+ * is stamped at the very bottom of that region at exec time.  If the tick
+ * ever finds the band disturbed the stack grew within 8 words of the BSS /
+ * kernel tables; warn once (and stop checking) rather than panic so a deep
+ * but otherwise healthy call chain cannot take the machine down.
+ *
+ * Everything is within the existing stack allocation and two small scalars,
+ * so this adds no static RAM to the ~1 KB left in main SRAM.  Only enabled for
+ * platforms with directly-mapped user memory (CONFIG_USERSTACK_GUARD is set in
+ * the rpipico config.h). */
+static uaddr_t ustack_guard_addr;	/* low address of the user stack, 0 = none */
+static uint8_t ustack_guard_tripped;
+
+void plt_userstack_guard_stamp(uaddr_t stack_bottom)
+{
+	ustack_guard_addr = (uaddr_t)ALIGNUP(stack_bottom);
+	ustack_guard_tripped = 0;
+	for (unsigned i = 0; i < USTACK_GUARD_WORDS; ++i)
+		*(volatile uint32_t *)(ustack_guard_addr + i * 4) =
+			USTACK_GUARD_MAGIC;
+}
+
+void plt_userstack_guard_check(void)
+{
+	if (!ustack_guard_addr || ustack_guard_tripped)
+		return;
+	for (unsigned i = 0; i < USTACK_GUARD_WORDS; ++i) {
+		if (*(volatile uint32_t *)(ustack_guard_addr + i * 4) !=
+		    USTACK_GUARD_MAGIC) {
+			ustack_guard_tripped = 1;
+			kprintf("warning: user stack high-water guard tripped (pid %d)\n",
+				udata.u_ptab->p_pid);
+			break;
+		}
+	}
+}
+#endif
+
 /* This is a simple relocatable ELF loader. It requires -pie -static files with
  * a DYNAMIC program header. The dynamic relocation data is loaded into memory
  * and must be immediately after the bss (it's used to determine the location
@@ -320,6 +362,12 @@ arg_t _execve(void)
 	/* Clear the stack (the BSS has already been cleared by the loader). */
 
 	uzero((void*)dynamic, USERSTACK);
+
+#ifdef CONFIG_USERSTACK_GUARD
+	/* M4: stamp the bottom-of-stack sentinel after the clear.  `dynamic`
+	 * is now the absolute low address of the 7 KB user stack region. */
+	plt_userstack_guard_stamp((uaddr_t)dynamic);
+#endif
 
 	if (!(mflags & MS_NOSUID)) {
 		/* setuid, setgid if executable requires it */

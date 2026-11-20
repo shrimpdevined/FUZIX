@@ -24,6 +24,10 @@ add_compile_definitions(
 		PICO_NO_BINARY_INFO=1
 		PICO_TIME_DEFAULT_ALARM_POOL_DISABLED
     TOTALMEM=${TOTALMEM}
+		# MASTER_PLAN S3: core1 stack 2 KB -> 4 KB.  It lives in the dedicated
+		# SCRATCH_X bank (0x20040000-0x20040FFF, exactly 4 KB), not main SRAM,
+		# so this does not reduce the ~1 KB of main RAM left below __bss_end__.
+		PICO_CORE1_STACK_SIZE=0x1000
 		)
 
 pico_sdk_init()
