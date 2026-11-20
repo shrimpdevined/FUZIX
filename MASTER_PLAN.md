@@ -119,7 +119,7 @@ Severity: **P0** ship-blocker (crash / data loss / forensics black hole), **P1**
 
 | Status | ID | Sev | Finding / what it targeted | Resolution |
 |--------|----|-----|----------------------------|------------|
-| [ ] | B1 | P0 | Console is USB-only; no serial fallback or `console=` flag (boot logs now recoverable via files). | Early `console=uart\|usb\|both` + UART fallback. |
+| [-] | B1 | P0 | Original worry: USB-only console = no output when USB isn't enumerated. | **Descoped — no longer applies.** (1) The LCD is a live local console: every byte goes to VT/LCD as well as USB, kept flowing by D1, so a dead USB port is not a blind spot. (2) Persistent output is covered by `boot.log` and `crash.log`. (3) Implementing it is actively harmful: `PICO_DEFAULT_UART_TX_PIN` is GPIO0 = CardKB I2C0 SDA, and UART1 is GPIO6-9 = touch I2C1 — enabling either breaks the only input device. `rawuart` is deliberately a no-op for this reason. | LCD shows output with USB unplugged; log files readable; CardKB still works. |
 | [ ] | B2 | P1 | `firstboot` blocks unattended boot; getty has no respawn limit and an unbounded tty-open loop. | Move firstboot to first login; respawn limit; bounded open. |
 | [x] | B3 | P1 | `doexit()` called `sync()` even with no dirty buffers → seconds-long exit gap. | Scan `bufpool` first (`8254768`). Build verified. |
 | [~] | B4 | P2 | `devlcd_init()` spends ~240 ms with IRQs off before interrupts are enabled. | Deferred: strict ST7796 timing; boot text already captured to `boot.log`. |
@@ -184,11 +184,12 @@ C7, D2, D3, C5 done; C1/C2/C8 accepted/mitigated. `picoctl diag` on the final im
 own LCD row; gfx round-trip preserves markers. C1/C2 decisions are in Section 2.
 
 **Phase 3 — Forensics — PARTIAL.** S4, S5 done; L1 stages 0-1 done (plain log
-files). The full kernel ring + rotating daemon remains open (see Section 4); B1
-(UART fallback) remains open.
+files). The full kernel ring + rotating daemon remains open (see Section 4). B1
+was descoped — the LCD mirror and log files already cover its goal, and its UART
+pins belong to the keyboard/touch.
 
 **Phase 4 — FS / boot / input robustness — PARTIAL.** F6, B3, I3, I4 done; B4
-deferred. F1/F3/F4/F5, B1/B2, I2 remain open.
+deferred. F1/F3/F4/F5, B2, I2 remain open.
 
 **Phase 5 — Cohesion (Linux-like contracts) — NOT STARTED.** C4, D4, D5, S3,
 M4-M9, K4/K5, I5/I6.
@@ -215,16 +216,6 @@ and write a `klogd` daemon that appends to `/var/log/klog`, rotates it, and arch
 old copies to `/mnt/sd/log/`. Requires shrinking `USERMEM` by one block to make RAM.
 *Done when:* a forced panic plus a watchdog reboot leaves a timestamped log on disk
 and an archived copy on SD, with the memory map still under `0x20040000`.
-
-**B1 — console fallback so a dead USB port isn't a blind spot.**
-*Target:* all console output goes over USB. If USB doesn't enumerate (bad cable,
-no host), there is currently no way to see boot or panic messages live. The log
-files help after the fact, but a `console=` flag and UART path would give live
-output and match Linux's `console=` boot parameter.
-*Do:* add an early `console=uart|usb|both` option, a `rawuart` output path, and
-make kernel messages go through the chosen console instead of literal minor `1`.
-*Done when:* with USB unplugged, boot messages appear on the UART; `console=usb`
-still behaves as today.
 
 ### P1 — high-value robustness
 
