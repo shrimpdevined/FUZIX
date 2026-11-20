@@ -1105,7 +1105,10 @@ extern arg_t _select(void);
 extern void fuzix_main(void);
 extern void set_boot_line(const char *p);
 
-/* swap.c */
+/* swap.c — Linux-style slot API.  One name, one release path, everywhere. */
+typedef uint16_t swp_entry_t;          /* Linux: include/linux/swap.h */
+#define SWP_ENTRY_NONE 0xFFFFu         /* no slot; slot 0 is valid */
+
 extern uint16_t swappage;
 
 extern int swapread(uint16_t dev, blkno_t blkno, usize_t nbytes,
@@ -1113,9 +1116,12 @@ extern int swapread(uint16_t dev, blkno_t blkno, usize_t nbytes,
 extern int swapwrite(uint16_t dev, blkno_t blkno, usize_t nbytes,
 		     uaddr_t buf, uint16_t page);
 
-extern void swapmap_add(uint_fast8_t swap);
-extern void swapmap_init(uint_fast8_t swap);
-extern int swapmap_alloc(void);
+extern void swap_free(swp_entry_t entry);
+extern void swap_init(swp_entry_t entry);
+extern swp_entry_t swap_alloc(void);
+extern void swap_hold(swp_entry_t entry, ptptr p);
+/* Linux: mm/swapfile.c put_swap_page().  Drops the slot held by p, once. */
+extern void put_swap_page(ptptr p);
 extern ptptr swapneeded(ptptr p, int selfok);
 extern void swapper(ptptr p);
 extern void swapper2(ptptr p, uint16_t map);

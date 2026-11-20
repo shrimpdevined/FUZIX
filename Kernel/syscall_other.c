@@ -636,7 +636,7 @@ arg_t _uadmin(void)
 			   driver */
 			n = 0;
 			while(size >= SWAP_SIZE && n < MAX_SWAPS) {
-				swapmap_init(n++);
+				swap_init(n++);
 				size -= SWAP_SIZE;
 			}
 			swap_dev = dev;

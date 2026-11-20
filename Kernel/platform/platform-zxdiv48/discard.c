@@ -53,7 +53,7 @@ void map_init(void)
 	uint8_t i = procmem >> 5;
 	kprintf("%d banks available.\n", i);
 	while(i--)	/* 3 - 0 are the kernel */
-		swapmap_init(i + 4);
+		swap_init(i + 4);
 }
 
 void plt_copyright(void)

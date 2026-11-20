@@ -92,7 +92,7 @@ int swapout_new(ptptr p, void *u)
 	if (!page)
 		panic(PANIC_ALREADYSWAP);
 	/* Are we out of swap ? */
-	map = swapmap_alloc();
+	map = swap_alloc();
 	if (map == -1)
 		return ENOMEM;
 	blk = map * SWAP_SIZE;

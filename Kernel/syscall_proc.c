@@ -445,6 +445,7 @@ arg_t _fork(void)
 	// if we fail this returns -1
 	if (r == -1) {
 		udata.u_ptab->p_status = P_RUNNING;
+		put_swap_page(new_process);   /* release a slot if one was held */
 		pagemap_free(new_process);
 		new_process->p_status = P_EMPTY;
 		udata.u_error = ENOMEM;

@@ -30,7 +30,7 @@ static void swap_found(uint_fast8_t minor, partition_table_entry_t * pe)
 		n++;
 	}
 	while (n)
-		swapmap_init(--n);
+		swap_init(--n);
 }
 #endif
 

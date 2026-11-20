@@ -34,7 +34,7 @@ void found_swap(uint16_t dev, uint16_t size)
 		swap_dev = dev;
 		size /= SWAP_SIZE;
 		while(--size)
-			swapmap_add(size);
+			swap_init(size);
 	}
 }
 

@@ -18,35 +18,82 @@
 
 uint16_t swappage;			/* Target page */
 
-/* Table of available maps */
-static uint8_t swapmap[MAX_SWAPS];
-static uint_fast8_t swapptr = 0;
+/* Linux-style slot table: one free list, one owner per slot, one release path.
+ *
+ *  swap_map[]     free-slot stack  (Linux: swap_info_struct.swap_map)
+ *  nr_swap_free   depth of the free stack (Linux: nr_swap_pages)
+ *  swap_state[]   SWAP_FREE / SWAP_USED, the idempotence guard
+ *  swap_owner[]   the ptptr that currently owns a used slot (NULL = none)
+ *
+ * Every success or error path returns a slot through swap_free(); there is
+ * exactly one release function in the whole tree. */
+static uint8_t swap_map[MAX_SWAPS];
+static uint_fast8_t nr_swap_free;
+static uint8_t swap_state[MAX_SWAPS];
+static ptptr swap_owner[MAX_SWAPS];
+
+#define SWAP_FREE 0u
+#define SWAP_USED 1u
 
 static char maxswap[] = PANIC_MAXSWAP;
 
-void swapmap_add(uint_fast8_t swap)
+/* Linux: mm/swapfile.c swap_free().  Idempotent: a second free of the same
+ * entry is a no-op, so any teardown path may call it safely. */
+void swap_free(swp_entry_t entry)
 {
-	if (swapptr == MAX_SWAPS)
+	if (entry >= MAX_SWAPS || swap_state[entry] == SWAP_FREE)
+		return;
+	swap_state[entry] = SWAP_FREE;
+	swap_owner[entry] = NULL;
+	if (nr_swap_free == MAX_SWAPS)
 		panic(maxswap);
-	swapmap[swapptr++] = swap;
+	swap_map[nr_swap_free++] = (uint8_t)entry;
 	sysinfo.swapusedk -= SWAP_SIZE / 2;
 }
 
-int swapmap_alloc(void)
+/* Linux: mm/swapfile.c folio_alloc_swap().  Returns SWP_ENTRY_NONE on
+ * exhaustion, never 0 (slot 0 is a perfectly valid slot). */
+swp_entry_t swap_alloc(void)
 {
-        if (swapptr) {
-		sysinfo.swapusedk += SWAP_SIZE / 2;
-                return swapmap[--swapptr];
-	}
-        else
-                return -1;
+	if (nr_swap_free == 0)
+		return SWP_ENTRY_NONE;
+	swp_entry_t entry = swap_map[--nr_swap_free];
+	swap_state[entry] = SWAP_USED;
+	swap_owner[entry] = NULL;
+	sysinfo.swapusedk += SWAP_SIZE / 2;
+	return entry;
 }
 
-void swapmap_init(uint_fast8_t swap)
+/* Record the process that owns a freshly allocated slot. */
+void swap_hold(swp_entry_t entry, ptptr p)
 {
-	if (swapptr == MAX_SWAPS)
+	if (entry < MAX_SWAPS)
+		swap_owner[entry] = p;
+}
+
+/* Linux: mm/swapfile.c put_swap_page().  Drop the slot held by p, if any. */
+void put_swap_page(ptptr p)
+{
+	for (unsigned i = 0; i < MAX_SWAPS; i++) {
+		if (swap_owner[i] == p) {
+			swap_free((swp_entry_t)i);
+			return;
+		}
+	}
+}
+
+void swap_init(swp_entry_t entry)
+{
+	if (entry >= MAX_SWAPS || swap_state[entry] != SWAP_FREE)
 		panic(maxswap);
-	swapmap[swapptr++] = swap;
+	/* Remove from the free stack if present, then re-add once. */
+	for (uint_fast8_t i = 0; i < nr_swap_free; i++) {
+		if (swap_map[i] == entry) {
+			swap_map[i] = swap_map[--nr_swap_free];
+			break;
+		}
+	}
+	swap_map[nr_swap_free++] = (uint8_t)entry;
 	sysinfo.swapk += SWAP_SIZE / 2;
 }
 
@@ -189,7 +236,7 @@ void swapper2(register ptptr p, uint16_t map)
 #endif
 	/* inswap = 1/0 around the swapin to sort preempt ? */
 	swapin(p, map);
-	swapmap_add(map);
+	swap_free(map);
 #ifdef DEBUG
 	kprintf("Swapped in %p (page %d), udata.ptab %p\n",
 		p, p->p_page, udata.u_ptab);

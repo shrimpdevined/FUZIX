@@ -247,14 +247,12 @@ void contextswitch(ptptr p)
     #endif
 
     if (!p->p_page) {
-        uint16_t map = p->p_page2;
+        swp_entry_t map = p->p_page2;
         swapin(p, map);
-        /* Return the swap map to the free pool.  swapin() clears p_page2,
-         * and the generic swapper2() that used to do this is dead code in
-         * this CONFIG_SWAP_ONLY port — without this the single 256 KB swap
-         * slot is consumed by the first swap-in and never recycled, causing
-         * permanent ENOMEM on all later allocations. */
-        swapmap_add(map);
+        /* Linux: put_swap_page() is the ONE release path for a slot.  It is
+         * idempotent, so exit/kill teardown paths can call it too without
+         * risking a double free (see SWAP_REDESIGN.md §4.1). */
+        put_swap_page(p);
     }
 
     int slot = get_slot(p);
@@ -351,8 +349,8 @@ int swapout(ptptr p)
         return ENOMEM;
 
 	/* Are we out of swap ? */
-	int16_t map = swapmap_alloc();
-	if (map == -1)
+	swp_entry_t map = swap_alloc();
+	if (map == SWP_ENTRY_NONE)
 		return ENOMEM;
 
 	uint16_t swaparea = map * SWAP_SIZE;
@@ -362,7 +360,7 @@ int swapout(ptptr p)
     for (int i=0; i<blocks; i++)
     {
         struct mapentry* b = find_block(slot, i);
-        if (!b) { swapmap_add(map); return ENOMEM; }  /* consistency */
+        if (!b) { swap_free(map); return ENOMEM; }  /* consistency */
         int blockindex = b - allocation_map;
         void* p = (void*)PROGBASE + blockindex*BLOCKSIZE;
 
@@ -370,7 +368,7 @@ int swapout(ptptr p)
          * the slot, which would be silently loaded by the next swapin. */
         if (swapwrite(SWAPDEV, swaparea + (i*(BLOCKSIZE>>BLKSHIFT)),
             BLOCKSIZE, (uaddr_t)p, 1) < 0) {
-            swapmap_add(map);
+            swap_free(map);
             return EIO;
         }
 
@@ -379,6 +377,7 @@ int swapout(ptptr p)
 
 	p->p_page = 0;
 	p->p_page2 = map;
+	swap_hold(map, p);   /* one owner per slot; released via put_swap_page() */
 	return 0;
 }
 

@@ -16,7 +16,7 @@ void map_init(void)
 #if defined EXTENDED_RAM_512 || defined EXTENDED_RAM_1024	
 	uint_fast8_t i;
 	for (i = 0; i < MAX_SWAPS; i++)
-		swapmap_init(i);
+		swap_init(i);
 #endif
 }
 

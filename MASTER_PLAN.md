@@ -144,10 +144,16 @@ Severity: **P0** ship-blocker (crash / data loss / forensics black hole), **P1**
 
 ### M — Memory / process isolation
 
-RP2040 has no MMU/MPU and no unprivileged mode: kernel and user both run privileged,
-with zero hardware isolation. Real isolation needs RP2350 (Cortex-M33 + MPU); record
-that as a permanent hardware limitation. The realistic target is early detection and
-deterministic watchdog recovery.
+**Hardware correction (2026-11-20):** the RP2040 **has** an ARMv6-M PMSAv7 MPU
+(8 regions/core, 8 subregions each, XN, plus the unprivileged/privileged
+extension) — the previous statement that it has "no MMU/MPU" was wrong. It has
+**no address translation** (no page tables/TLB): virtual == physical, always.
+The port uses neither the MPU nor unprivileged mode; everything runs privileged.
+The MPU can protect the kernel/swap stacks but cannot isolate processes at
+2 KB-block granularity. Real per-process isolation still needs RP2350 (PMSAv8
+MPU + more regions) or an MMU. The realistic target on RP2040 remains early
+detection and deterministic watchdog recovery. Details:
+`Kernel/platform/platform-rpipico/SWAP_REDESIGN.md` §2.
 
 | Status | ID | Sev | Finding / what it targeted | Resolution |
 |--------|----|-----|----------------------------|------------|
@@ -155,11 +161,12 @@ deterministic watchdog recovery.
 | [x] | M2 | P0 | `valaddr()` clamped instead of rejecting; `uget/uput` accepted short ranges. | Full-range validation (`75cfc11`). Device soak clean. |
 | [x] | M3 | P0 | `brk_extend()` accepted addresses inside `udata` with no bounds. | Bounded to `[PROGLOAD,PROGTOP]` (`fdaa4cc`). Device soak clean. |
 [-] | M4 | P1 | User stack (7 KB) can underflow into kernel tables. | **Disabled (`5deaff2`):** global stamp checked per-current-process at tick -> false warning on every command. M1 canary + M8 stack protector cover the real contract. Re-enable with per-process stamp. |
-| [-] | M5 | P1 | Swap reserved 728 blocks for a 512-block partition; second map I/O ignored; OOM calls `panic()`. | **Accepted (`fa1b3ef`, `e9ba27e`):** `MAX_SWAPS 1`, swap I/O returns checked, OOM now logs the victim pid before reset. A true per-process kill from swapper context needs a context switch + page-table teardown — unsafe in 800 B free SRAM; OOM is not reproducible in normal use. Documented hardware/design limit. |
+| [-] | M5 | P1 | Swap reserved 728 blocks for a 512-block partition; second map I/O ignored; OOM calls `panic()`. | **Superseded (2026-11-20):** tracing proved the `Swap: 182 182 0` symptom is a slot-ownership + victim-selection flaw, not an unavoidable hardware limit. Kept `MAX_SWAPS 1` and checked I/O (`fa1b3ef`, `e9ba27e`) as the stable baseline. Full redesign tracked as **M10** in `SWAP_REDESIGN.md`. |
 | [x] | M6 | P1 | ELF loader doesn't validate `p_filesz<=p_memsz`, or guard aligned-size overflow; relocation bound and readi checks already present. | Reject `p_filesz > p_memsz` and size wrap in the first pass before committing state (`185c9ca`). Build verified. |
 | [-] | M7 | P2 | `kmalloc()` pool never initialized → always NULL. | **Not applicable to rpipico:** no compiled source in this build calls `kmalloc()` (only `flat.c`/`buddy.c` and other platforms do), and `--gc-sections` drops `mm/malloc.c` from the final ELF (verified: no `kmalloc`/`kmemaddblk` symbol in `fuzix.elf.map`). No driver silently fails here. | No `kmalloc` reliance in the rpipico image. |
 | [x] | M8 | P2 | No `BUG_ON`/`WARN_ON`, no stack protector. | **DONE** (`b45aec3`, `270c4e3`): `bug.h` with `BUG_ON`/`WARN_ON`, canary runtime in `process.c`, `-fstack-protector-strong` in CMake. Map `__bss_end__=0x2003FBA8` (1,112 B free), 0 warnings. Device verified: boot, 3 compiles + runbin RC=42, burst, no canary trip. |
-[x] | M9 | P2 | OFT/ITAB/PTAB may be too small for the full compiler chain. | **DONE (verified, no change)** (`2518b76`): 56/45/16 adequate for cpp+cc1+as+ld; no ENFILE/EAGAIN. Raising costs scarce RAM. |
+| [x] | M9 | P2 | OFT/ITAB/PTAB may be too small for the full compiler chain. | **DONE (verified, no change)** (`2518b76`): 56/45/16 adequate for cpp+cc1+as+ld; no ENFILE/EAGAIN. Raising costs scarce RAM. |
+| [ ] | M10 | P0 | **Swap redesign (ground-up).** Slot ownership/victim-policy leak (`Swap: 182 182 0`), relocation HardFaults, OOM panic, dead dual-swapper contract. | **IN PROGRESS.** Authoritative design: `Kernel/platform/platform-rpipico/SWAP_REDESIGN.md`. Phase 0 (docs) + Phase 1 (Linux naming tree-wide, single idempotent `swap_free`/`put_swap_page`, dead `CONFIG_SWAPPER` removed) **DONE & DEVICE-VERIFIED**. Phases 2–5 pending: stack/udata safety, atomic swap I/O, honest accounting, device soak. Acceptance: 3 compiles each return to `182/0/182`; 50-compile stress with no reset; pipes 5/5; fsck clean. |
 
 ---
 
@@ -199,6 +206,13 @@ I6 partially accepted (no consumers). Device soak clean throughout.
 pipes 5/5, 0 VT drops, fsck clean, compiler + burst soaks clean. (Named
 `fcctest4.py` not present in checkout; equivalent suite run.)
 
+**Phase 7 — Swap redesign (M10) — IN PROGRESS.** Phase 0 complete: five-agent
+research swarm produced `Kernel/platform/platform-rpipico/SWAP_REDESIGN.md`,
+`MASTER_PLAN.md` hardware facts corrected (RP2040 *has* an 8-region MPU), M5
+superseded by M10. Known-good UF2 backed up to
+`/home/qlms/Documents/fuzix-build/known_good_backup.uf2`. Device stable at
+`859cc46`. Phases 1–5 pending per the design document.
+
 ---
 
 ## 4. Remaining work — what each target actually does
@@ -207,6 +221,19 @@ This is the complete list of open/partial items. Each entry says what the proble
 in plain language, what to change, and how to know it worked. Ordered by priority.
 
 ### P0 — should be done before calling the system stable
+
+**M10 — IN PROGRESS (2026-11-20): ground-up swap redesign.**
+*Evidence:* tracing proved the post-compile `Swap: 182 182 0` state is a
+slot-ownership + victim-selection flaw (init is always the oldest waiter and
+never wakes), not an unavoidable `MAX_SWAPS=1` hardware limit. Partial fixes
+(skip init, 2 maps) produced OOM and HardFaults because the syscall stack lives
+inside relocatable RAM and swap I/O state lives in `udata`.
+*Do:* implement the single-owner state machine, idempotent release on every
+teardown path (including fatal signal of a swapped process), atomic
+reserve-then-restore swap I/O, and stack/udata safety. Full design:
+`Kernel/platform/platform-rpipico/SWAP_REDESIGN.md`.
+*Done when:* three consecutive compiles each return `free` to `182/0/182`;
+50-compile stress produces no reset/crash-log record; pipes 5/5; fsck clean.
 
 **L1 — DONE.** Full pipeline: `klog.c` 4 KB ring fed by `kputchar()`,
 `/dev/klog` (minor 128) with DRAIN/LEVEL/CLEAR/FLUSH/REPLAY, `klogd` writing

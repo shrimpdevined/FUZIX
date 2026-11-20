@@ -176,7 +176,7 @@ void pagemap_init(void)
 
   kmemaddblk(((void *)(_vectors[0])), 262144U - gap);
   for (u = 0U; u < MAX_SWAPS; u++)
-    swapmap_init(u);
+    swap_init(u);
 }
 
 void program_vectors(uint16_t *pageptr)

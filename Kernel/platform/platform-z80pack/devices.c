@@ -41,5 +41,5 @@ void device_init(void)
   zrtc_init();
   /* Add 64 swaps (4MB) to use the entire J drive */
   for (i = 0; i < MAX_SWAPS; i++)
-    swapmap_init(i);
+    swap_init(i);
 }

@@ -133,7 +133,7 @@ int do_swapout(ptptr p)
 	if (!page)
 		panic(PANIC_ALREADYSWAP);
 	/* Are we out of swap ? */
-	map = swapmap_alloc();
+	map = swap_alloc();
 	if (map == -1)
 		return ENOMEM;
 #ifdef DEBUG

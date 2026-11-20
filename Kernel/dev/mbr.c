@@ -31,7 +31,7 @@ static void mbr_swap_found(uint8_t letter, uint8_t m)
   }
   /* Partition swap is 0 based */
   while(n)
-    swapmap_init(--n);
+    swap_init(--n);
 }
 #endif
 

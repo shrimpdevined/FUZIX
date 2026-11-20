@@ -17,7 +17,7 @@ void map_init(void)
 #ifdef CONFIG_RD_SWAP
 	uint_fast8_t i;
 	for (i = 0; i < MAX_SWAPS; i++)
-		swapmap_init(i);
+		swap_init(i);
 #endif
 	/* Adjust as this varies by video config option */
 	ramsize = PROC_SIZE;

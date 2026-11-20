@@ -87,7 +87,7 @@ DISC void pagemap_init(void)
 	pagemap_add(6);
 //	/* initialize swap pages */
 //	for (i = 0; i < MAX_SWAPS; i++)
-//		swapmap_init(i);
+//		swap_init(i);
 }
 
 DISC void map_init(void)

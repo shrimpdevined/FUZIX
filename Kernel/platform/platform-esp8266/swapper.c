@@ -401,7 +401,7 @@ int swapout(ptptr p)
         return ENOMEM;
 
     /* Are we out of swap ? */
-    int16_t map = swapmap_alloc();
+    int16_t map = swap_alloc();
     if (map == -1)
         return ENOMEM;
 

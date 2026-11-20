@@ -128,7 +128,7 @@ int swapout(ptptr p)
 		panic("swapout");
 
 	/* Are we out of swap ? */
-	map = swapmap_alloc();
+	map = swap_alloc();
 	if (map == 0)
 		return ENOMEM;
 	blk = map * SWAP_SIZE;
