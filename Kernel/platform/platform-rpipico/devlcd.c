@@ -37,10 +37,15 @@ static inline void lcd_cs_release(void) {
     gpio_put(PIN_LCD_CS, 1);
 }
 
-/* LCD and SD share spi0.  If the SD driver owns the bus (sd_drive != NONE),
- * an LCD draw would deselect the SD card mid-transaction and switch the clock
- * to 62 MHz, corrupting it ("sd: timeout" spiral).  Skip LCD output while SD
- * is busy — the VT shadow buffer retains the state and redraws later. */
+/* Explicit SPI0 ownership (MASTER_PLAN F5): the SD driver is the owner while
+ * sd_drive != SD_DRIVE_NONE.  We do NOT introduce a competing lock -- the LCD
+ * is driven from VT/idle context and a real mutex could deadlock or stall the
+ * console.  Instead the owner is a single cooperative flag, and the SD side
+ * bounds how long it may hold the bus (see SD_RETRY_TOTAL_MS in devsd.c).
+ * An LCD draw while SD owns spi0 would deselect the card mid-transaction and
+ * switch the clock to 62 MHz, corrupting it ("sd: timeout" spiral).  Skip LCD
+ * output while SD is busy — the VT shadow keeps the state and lcd_task()
+ * repaints the deferred rows once the owner releases the bus. */
 static inline int lcd_bus_busy(void) {
     return sd_drive != SD_DRIVE_NONE;
 }
@@ -362,8 +367,9 @@ int devfb_write(uint_fast8_t minor, uint_fast8_t rawflag, uint_fast8_t flag) {
     static uint8_t bounce[512];
     usize_t transferred = 0;
     /* Never steal the shared SPI bus from an in-flight SD transaction.
-     * Report the failure honestly: pretending the whole write succeeded
-     * silently loses a full frame and makes verification impossible. */
+     * Report the contention honestly as EBUSY so userspace can retry:
+     * pretending the whole frame was written silently loses data and makes
+     * verification impossible (MASTER_PLAN F5). */
     if (lcd_bus_busy()) {
         udata.u_error = EBUSY;
         return -1;

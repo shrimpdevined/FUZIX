@@ -40,6 +40,40 @@ uint_fast8_t sd_error_retry;
 #define SD_WRITE_TIMEOUT_MS  3000
 #define SD_CMD_TIMEOUT_MS    2000
 
+/* MASTER_PLAN F5: bound the TOTAL wall-clock time of one SD transfer,
+ * including every retry.  A single attempt can consume up to
+ * SD_CMD_TIMEOUT_MS (2 s) in sd_spi_wait() plus SD_WRITE_TIMEOUT_MS (3 s) in
+ * sd_spi_release(); the old 8-attempt loop could therefore run for ~24 s,
+ * far beyond the 5 s watchdog, leaving the shell apparently wedged.  Cap the
+ * whole loop at 2.5 s so a stuck card fails fast.  The generic kernel timer
+ * advances from the 100 Hz tick, which keeps running (IRQs stay enabled)
+ * throughout block I/O, so this is a real wall-clock deadline. */
+#define SD_RETRY_TOTAL_MS    2500
+
+/* Non-zero only while devsd_transfer_sector() owns SPI0.  Outside a transfer
+ * (card init/probe) the sd_spi_wait()/sd_spi_release() helpers keep their
+ * original per-call timeouts, so boot probing is unaffected. */
+static timer_t sd_xfer_deadline;
+static bool sd_retry_bounded;
+
+static int sd_retry_expired(void)
+{
+    return sd_retry_bounded && timer_expired(sd_xfer_deadline);
+}
+
+/*
+ *	Explicit SPI0 ownership (MASTER_PLAN F5).
+ *
+ *	sd_drive is the single owner token for the shared SPI0 bus: the SD
+ *	driver sets it to the drive number for the whole of a transfer and
+ *	clears it to SD_DRIVE_NONE only after CS has been raised and the bus
+ *	released.  The LCD checks sd_drive (lcd_bus_busy()) and refuses to draw
+ *	while it is set; deferred rows are repainted later from lcd_task().
+ *	We deliberately keep this cooperative flag rather than introducing a
+ *	new lock -- the LCD is driven from interrupt/idle context where a real
+ *	mutex would risk deadlock or break the console path.  What we DO bound
+ *	here is the time the owner may hold the bus.
+ */
 uint_fast8_t devsd_transfer_sector(void)
 {
     uint8_t attempt;
@@ -51,7 +85,15 @@ uint_fast8_t devsd_transfer_sector(void)
        we touch the bus */
     barrier();
 
+    /* One deadline for all attempts below. */
+    sd_xfer_deadline = set_timer_ms(SD_RETRY_TOTAL_MS);
+    sd_retry_bounded = true;
+
     for(attempt=0; attempt<8; attempt++){
+        /* Bail out before starting another attempt once the total budget is
+         * gone (MASTER_PLAN F5).  The inner waits also honour this deadline. */
+        if (sd_retry_expired())
+            break;
         /* After a few failures the card may be wedged mid-program (eg the
          * shared LCD bus deselected it).  Re-initialize at slow clock before
          * trying again rather than hammering a stuck card. */
@@ -91,6 +133,7 @@ uint_fast8_t devsd_transfer_sector(void)
 	sd_spi_release();
 	
 	if(success) {
+            sd_retry_bounded = false;
             sd_drive = SD_DRIVE_NONE;
 	    return 1;
         }
@@ -102,6 +145,7 @@ uint_fast8_t devsd_transfer_sector(void)
 	sd_error_retry = 1;
     }
 
+    sd_retry_bounded = false;
     udata.u_error = EIO;
     sd_drive = SD_DRIVE_NONE;
     /* Bus is released; safe to print now (LCD can use the SPI bus). */
@@ -122,7 +166,9 @@ void sd_spi_release(void)
 		 * expiry we still raise CS, but the retry loop will re-init the
 		 * card if it remained busy. */
 		timer_t timer = set_timer_ms(SD_WRITE_TIMEOUT_MS);
-		while (!timer_expired(timer)) {
+		/* MASTER_PLAN F5: also stop when the transfer-wide retry deadline
+		 * expires, so a wedged card cannot hold SPI0 past the watchdog. */
+		while (!timer_expired(timer) && !sd_retry_expired()) {
 			uint_fast8_t b = sd_spi_receive_byte();
 			if (b != 0x00)
 				break;
@@ -170,6 +216,7 @@ uint_fast8_t sd_spi_wait(bool want_ff)
 {
     unsigned int timer;
     uint_fast8_t b;
+    bool timed_out = false;
 
     timer = set_timer_ms(SD_CMD_TIMEOUT_MS);
 
@@ -182,14 +229,23 @@ uint_fast8_t sd_spi_wait(bool want_ff)
             if(b != 0xFF)
                 break;
         }
-        if(timer_expired(timer)){
+        /* MASTER_PLAN F5: the transfer-wide retry deadline caps this wait
+         * too, not just the number of attempts in the retry loop. */
+        if(timer_expired(timer) || sd_retry_expired()){
             /* Defer the message until the SD bus is released (see above). */
             sd_error_retry = 1;
+            timed_out = true;
             break;
         }
 
     }
 
+    /* On timeout the last byte read was usually 0xFF (an idle card).  For a
+     * "wait for 0xFF" that would masquerade as success, so report an explicit
+     * failure byte instead; for the data-token case 0xFF is already a
+     * failure.  This also fixes the equivalent pre-existing timeout case. */
+    if (timed_out)
+        return want_ff ? 0x00 : 0xFF;
     return b;
 }
 
