@@ -275,6 +275,25 @@ extern void tty_setup(uint_fast8_t minor, uint_fast8_t flags);
 extern void tty_flushinput(uint_fast8_t minor) __attribute__((weak));
 extern int tty_carrier(uint_fast8_t minor);
 extern void tty_data_consumed(uint_fast8_t minor);
+
+/* MASTER_PLAN I5: minimal generic input core (Kernel/input.c).  The keyboard
+ * and touch transports feed timestamped events into one small ring.  There is
+ * deliberately no /dev/input node yet — the tty path stays authoritative.
+ * input_emit() is weak so a build that does not link Kernel/input.c simply
+ * drops the events (callers must check the symbol before calling). */
+struct input_event {
+    uint16_t type;
+    uint16_t code;
+    int16_t  value;
+    uint32_t ts;            /* time_us_32() at emission */
+};
+#define INPUT_EV_KEY 0x01   /* key/code: keycode, value: 1 down / 0 up */
+#define INPUT_EV_ABS 0x03   /* absolute axis: 0=x 1=y, value=coordinate */
+
+extern void input_emit(uint16_t type, uint16_t code, int16_t value,
+                       uint32_t ts) __attribute__((weak));
+extern int input_get(struct input_event *ev) __attribute__((weak));
+
 /* PTY pieces: 8 ptys both sides of */
 #ifdef CONFIG_PTY_DEV
 #define PTY_BUFFERS \

@@ -1,5 +1,6 @@
 #include <kernel.h>
 #include <kdata.h>
+#include <tty.h>
 #include "picosdk.h"
 #include "hardware/i2c.h"
 #include "hardware/gpio.h"
@@ -64,6 +65,16 @@ int devtouch_read(uint_fast8_t minor, uint_fast8_t rawflag, uint_fast8_t flag) {
                 ev.points  = pts;
             }
         }
+    }
+
+    /* Feed the generic input core (MASTER_PLAN I5) in addition to the
+     * existing read() path.  Weak linkage means this is a no-op if
+     * Kernel/input.c is not linked into the image. */
+    if (input_emit) {
+        uint32_t ts = time_us_32();
+        input_emit(INPUT_EV_ABS, 0, ev.x, ts);
+        input_emit(INPUT_EV_ABS, 1, ev.y, ts);
+        input_emit(INPUT_EV_KEY, 0, ev.pressed, ts);
     }
 
     if (uput(&ev, udata.u_base, sizeof(ev)) < 0)
