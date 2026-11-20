@@ -263,6 +263,26 @@ Rollback at any stage: revert the stage's commit; the stage-0 UF2
 
 ---
 
+## 6b. Failed experiment: victim policy (DO NOT re-apply as-is)
+
+Tried after Phase 2: skip init (`p_pid == 1`) and no-TTY daemons
+(`p_tty == 0`) in `swapvictim()` (`Kernel/swap.c`). Result on device:
+
+* Build clean; boot OK; first two compiles produced binaries.
+* The shell (pid 20) became the victim. Since it wakes on every child exit
+  during the compiler pipeline, it was swapped out and back in repeatedly —
+  the machine became very slow, then reset/boot-looped on the third compile.
+* A fresh crash log was not produced (watchdog reset, not a panic), so the
+  exact fault remains unproven; the observation is consistent with
+  swap-in OOM/thrash, not with the Phase 2 relocation fix failing.
+
+This confirms that simply changing *who* is evicted is insufficient: the
+victim must be a process whose resume is bounded and whose RAM can be
+guaranteed at swap-in time (§4.1.4–5). The change was reverted; master stays
+on the stable Phase 2 baseline.
+
+---
+
 ## 7. Open decisions (resolved during implementation)
 
 * **Kernel stack location:** prefer a fixed stack in SRAM4 (`0x20040000`) over
