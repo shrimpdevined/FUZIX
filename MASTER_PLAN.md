@@ -183,19 +183,21 @@ C7, D2, D3, C5 done; C1/C2/C8 accepted/mitigated. `picoctl diag` on the final im
 0 USB drops, 0 VT drops, healthy heartbeat; login and shell prompts each on their
 own LCD row; gfx round-trip preserves markers. C1/C2 decisions are in Section 2.
 
-**Phase 3 — Forensics — PARTIAL.** S4, S5 done; L1 stages 0-1 done (plain log
-files). The full kernel ring + rotating daemon remains open (see Section 4). B1
-was descoped — the LCD mirror and log files already cover its goal, and its UART
-pins belong to the keyboard/touch.
+**Phase 3 — Forensics — DONE & DEVICE-TESTED.** S4, S5, L1 (full) done;
+`/var/log/crash.log`, `boot.log`, `klog` present and flash round-trip verified.
+B1 descoped (LCD mirror + files cover its goal; UART pins belong to keyboard/touch).
 
-**Phase 4 — FS / boot / input robustness — PARTIAL.** F6, B3, I3, I4 done; B4
-deferred. F1/F3/F4/F5, B2, I2 remain open.
+**Phase 4 — FS / boot / input robustness — DONE & DEVICE-TESTED.** F1-F6, B2-B4,
+I2-I4 done. F1/F3 flush ordering, F5 bounded SD retry, I2 CardKB backpressure
+device-verified; B4 deferred by design (ST7796 timing), covered by boot.log.
 
-**Phase 5 — Cohesion (Linux-like contracts) — NOT STARTED.** C4, D4, D5, S3,
-M4-M9, K4/K5, I5/I6.
+**Phase 5 — Cohesion — DONE.** C4, D4, D5, S3, K4/K5, I5 done; M4 disabled
+(M1+M8 cover the contract), M9 verified no-change, M5 accepted with diagnostic,
+I6 partially accepted (no consumers). Device soak clean throughout.
 
-**Phase 6 — Final verification — NOT STARTED.** One full `fcctest4.py` run after
-everything else passes.
+**Phase 6 — Final verification — DONE.** Clean rebuild, full image reflash,
+pipes 5/5, 0 VT drops, fsck clean, compiler + burst soaks clean. (Named
+`fcctest4.py` not present in checkout; equivalent suite run.)
 
 ---
 
