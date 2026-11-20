@@ -9,6 +9,9 @@ prtroot >/etc/mtab
 # survives USB re-enumeration and can be read with cat (MASTER_PLAN S5/S8).
 picoctl crashlog /var/log/crash.log
 picoctl bootlog /var/log/boot.log
+# Persist the boot kernel log to flash BEFORE klogd drains the ring, so a
+# later crash or power loss can replay it (MASTER_PLAN L1).
+picoctl klog flush
 # Start the kernel log daemon (drains /dev/klog to /var/log/klog, rotates).
 klogd
 

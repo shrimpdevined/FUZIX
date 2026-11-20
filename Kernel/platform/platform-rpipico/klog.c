@@ -118,25 +118,35 @@ void klog_resume(void)
 #define KLOG_MAGIC 0x4B4C4F47UL    /* "KLOG" */
 
 static uint8_t klog_stage[256];
+/* Monotonic sequence, seeded from the highest persisted sector at boot so
+ * a reboot never rewinds and overwrites the newest record (L1 wear level). */
+static uint32_t klog_seq;
 
-static void klog_program_sector(uint32_t seq)
+#define KLOG_HDR 16             /* magic(4) + seq(4) + len(4x2 mirrored) */
+#define KLOG_PAYLOAD (4096 - KLOG_HDR)   /* 4080 bytes */
+
+static void klog_program_sector(uint32_t seq, uint32_t len)
 {
 	uint32_t off = KLOG_FLASH_BASE + ((seq % KLOG_FLASH_SECTORS) << 12);
-	uint32_t tail, i, chunk, base;
+	uint32_t i, chunk, base, have, head;
 	irqflags_t irq;
 
-	/* Snapshot the newest 4088 bytes. */
+	/* Snapshot the newest `have` bytes: the ring's valid data is
+	 * [tail, head), so the newest `have` bytes start at (head-have). */
 	irq = di();
-	tail = klog_tail;
+	head = klog_head;
+	have = head - klog_tail;
 	irqrestore(irq);
-	base = (tail + KLOG_RING_SIZE - 4088) & KLOG_MASK;
+	if (have > len)
+		have = len;
+	base = (head - have) & KLOG_MASK;
 
 	if (!multicore_lockout_start_timeout_us(200000))
 		return;
 	irq = di();
 	flash_range_erase(off, 4096);
 
-	/* First 256-byte page: header + 248 bytes of log. */
+	/* First page: 16-byte header + 240 bytes of payload. */
 	memset(klog_stage, 0, sizeof(klog_stage));
 	klog_stage[0] = (uint8_t)KLOG_MAGIC;
 	klog_stage[1] = (uint8_t)(KLOG_MAGIC >> 8);
@@ -146,13 +156,18 @@ static void klog_program_sector(uint32_t seq)
 	klog_stage[5] = (uint8_t)(seq >> 8);
 	klog_stage[6] = (uint8_t)(seq >> 16);
 	klog_stage[7] = (uint8_t)(seq >> 24);
-	for (i = 0; i < 248; i++)
-		klog_stage[8 + i] = klog_mkfs.klog_ring[(base + i) & KLOG_MASK];
+	/* Valid byte count mirrored 4x for tear tolerance. */
+	for (i = 0; i < 4; i++) {
+		klog_stage[8 + i * 2] = (uint8_t)len;
+		klog_stage[9 + i * 2] = (uint8_t)(len >> 8);
+	}
+	for (i = 0; i < (256 - KLOG_HDR); i++)
+		klog_stage[KLOG_HDR + i] = klog_mkfs.klog_ring[(base + i) & KLOG_MASK];
 	flash_range_program(off, klog_stage, 256);
 
 	/* Remaining 15 pages straight from the ring (may wrap). */
 	for (chunk = 1; chunk < 16; chunk++) {
-		uint32_t p = (base + 248 + (chunk - 1) * 256) & KLOG_MASK;
+		uint32_t p = (base + 256 - KLOG_HDR + (chunk - 1) * 256) & KLOG_MASK;
 		uint32_t first = KLOG_RING_SIZE - p;
 		if (first > 256)
 			first = 256;
@@ -168,17 +183,18 @@ static void klog_program_sector(uint32_t seq)
 
 void klog_flush(void)
 {
-	static uint32_t seq;
 	uint32_t n = klog_level();
 
 	if (klog_suspended || n == 0)
 		return;
-	klog_program_sector(++seq);
+	if (n > KLOG_PAYLOAD)
+		n = KLOG_PAYLOAD;
+	klog_program_sector(++klog_seq, n);
 }
 
 void klog_replay(void)
 {
-	uint32_t best_seq = 0, best_sector = 0, i, found = 0;
+	uint32_t best_seq = 0, best_sector = 0, i, found = 0, len = 0;
 
 	for (i = 0; i < KLOG_FLASH_SECTORS; i++) {
 		uint32_t off = KLOG_FLASH_BASE + (i << 12);
@@ -188,19 +204,26 @@ void klog_replay(void)
 		uint32_t seq = (uint32_t)p[4] | ((uint32_t)p[5] << 8) |
 		               ((uint32_t)p[6] << 16) | ((uint32_t)p[7] << 24);
 		if (magic == KLOG_MAGIC && (!found || seq > best_seq)) {
+			uint32_t l = (uint32_t)p[KLOG_HDR] | ((uint32_t)p[KLOG_HDR + 1] << 8);
 			best_seq = seq; best_sector = i; found = 1;
+			len = l > KLOG_PAYLOAD ? KLOG_PAYLOAD : l;
 		}
 	}
 	if (!found)
 		return;
 
+	/* Seed the monotonic counter past the newest record so the next
+	 * flush rotates to a different sector instead of overwriting it. */
+	if (best_seq >= klog_seq)
+		klog_seq = best_seq;
+
 	{
 		uint32_t off = KLOG_FLASH_BASE + (best_sector << 12);
 		const uint8_t *p = (const uint8_t *)(XIP_NOCACHE_NOALLOC_BASE + off);
-		for (i = 0; i < 4088; i++)
-			klog_mkfs.klog_ring[i] = p[8 + i];
+		for (i = 0; i < len; i++)
+			klog_mkfs.klog_ring[i] = p[KLOG_HDR + i];
 	}
-	klog_head = 4088;
+	klog_head = len;
 	klog_tail = 0;
 }
 
