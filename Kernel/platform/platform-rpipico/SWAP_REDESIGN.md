@@ -263,6 +263,37 @@ Rollback at any stage: revert the stage's commit; the stage-0 UF2
 
 ---
 
+## 5b. Boot-loop mechanism (watchdog/reset audit, 2026-11-20)
+
+A separate reset-path audit established that the observed loop is **not** a
+watchdog timeout. It is a deterministic software loop:
+
+```
+fmount(hda1 = dev 1) fails (start.c:423-431, prints "failed")
+  -> get_root_dev() called again returns BAD_ROOT_DEV (BOOTDEVICE compiled in,
+     first=0 at start.c:331-341)
+  -> panic("no root") (start.c:419-420)
+  -> plt_monitor() (misc.c:111-126): crashlog/klog flush, sleep_ms(1500),
+     watchdog_reboot(0,0,0)
+  -> repeat
+```
+
+The damaged object is the **Dhara FTL / root filesystem at flash 0x34000+**
+(the loop reports 1220 kB logical; healthy boots report 1201 kB). The kernel
+image is fine. A kernel-only UF2 reflash therefore cannot clear it — only a
+**full image** (`fuzix_pico_complete.uf2`, which includes `filesystem.uf2` at
+`0x10034000`) repairs the FTL. This is why restoring `known_good_backup.uf2`
+worked.
+
+Hardening identified (not yet applied):
+* `misc.c:111-126` — `plt_monitor()` resets unconditionally after 1500 ms;
+  `PANIC_NOROOT` should get a recovery window / SD-root fallback.
+* `devflash.c:99` — `dhara_map_resume(&dhara, &err)` ignores `err`.
+* `crashlog.c:93` / `klog.c:181` — unbounded `multicore_lockout_end_blocking()`
+  under `di()`; use the bounded pattern already in `rawflash.c:52-60`.
+
+---
+
 ## 6b. Failed experiment: victim policy (DO NOT re-apply as-is)
 
 Tried after Phase 2: skip init (`p_pid == 1`) and no-TTY daemons
