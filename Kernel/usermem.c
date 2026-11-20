@@ -63,10 +63,12 @@ int16_t ugetc(const void *user)
 
 uint16_t ugetw(const void *user)
 {
-	if (!valaddr_r(user, 2))
+	/* Require the FULL 2-byte range: a custom valaddr may clamp to p_top,
+	 * so a truthy test would accept a pointer 1 byte short of the top. */
+	if (valaddr_r(user, 2) < 2)
 		return -1;
 #ifdef MISALIGNED
-	if (MISALIGNED(user, 2)) }
+	if (MISALIGNED(user, 2)) {
 		ssig(udata.u_proc, SIGBUS);
 		return -1;
 	}
@@ -93,10 +95,10 @@ int uputc(uint16_t value,  void *user)
 
 int uputw(uint16_t value, void *user)
 {
-	if (!valaddr_w(user, 2))
+	if (valaddr_w(user, 2) < 2)
 		return -1;
 #ifdef MISALIGNED
-	if (MISALIGNED(user, 2)) }
+	if (MISALIGNED(user, 2)) {
 		ssig(udata.u_proc, SIGBUS);
 		return -1;
 	}
@@ -117,10 +119,11 @@ int uzero(void *user, usize_t count)
 
 uint32_t ugetl(void *uaddr)
 {
-	if (!valaddr_r(uaddr, 4))
+	/* Require the FULL 4-byte range (see ugetw). */
+	if (valaddr_r(uaddr, 4) < 4)
 		return -1;
 #ifdef MISALIGNED
-	if (MISALIGNED(user, 4)) }
+	if (MISALIGNED(uaddr, 4)) {
 		ssig(udata.u_proc, SIGBUS);
 		return -1;
 	}
@@ -130,10 +133,10 @@ uint32_t ugetl(void *uaddr)
 
 int uputl(uint32_t val, void *uaddr)
 {
-	if (!valaddr_w(uaddr, 4))
+	if (valaddr_w(uaddr, 4) < 4)
 		return -1;
 #ifdef MISALIGNED
-	if (MISALIGNED(user, 2)) }
+	if (MISALIGNED(uaddr, 4)) {
 		ssig(udata.u_proc, SIGBUS);
 		return -1;
 	}
