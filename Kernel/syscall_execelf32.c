@@ -143,7 +143,13 @@ arg_t _execve(void)
 		{
 			case PT_LOAD:
 			{
-				uaddr_t sectop = ph->p_vaddr + (uaddr_t)ALIGNUP(ph->p_memsz);
+				uaddr_t sz = (uaddr_t)ALIGNUP(ph->p_memsz);
+				/* Reject segments whose size wraps the address space or
+				 * that claim file data larger than memory (M6). */
+				if (sz < ph->p_memsz || ph->p_vaddr > MAXUSIZE - sz ||
+				    ph->p_filesz > ph->p_memsz)
+					goto enoexec;
+				uaddr_t sectop = ph->p_vaddr + sz;
 				if (sectop > lomem)
 					lomem = sectop;
 				break;
@@ -204,6 +210,15 @@ arg_t _execve(void)
 	for (int i=0; i<ehdr.e_phnum; i++) {
 		Elf32_Phdr* ph = &phdr[i];
 		if ((ph->p_type == PT_LOAD) && ph->p_flags) {
+			/* Linux ELF loader contract: a segment may not claim more
+			 * file data than memory (M6).  Otherwise the BSS-zeroing
+			 * below underflows to a huge length and trashes userland. */
+			if (ph->p_filesz > ph->p_memsz) {
+#ifdef DEBUG
+				kprintf("failed: p_filesz > p_memsz\n");
+#endif
+				goto enoexec;
+			}
 			uaddr_t ssize = (uaddr_t)ALIGNUP(ph->p_filesz);
 			uaddr_t base = PROGLOAD + ph->p_vaddr;
 			udata.u_offset = ph->p_offset;
