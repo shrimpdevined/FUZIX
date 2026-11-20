@@ -6,6 +6,7 @@
 #include "pico_ioctl.h"
 #include "globals.h"
 #include "core1.h"
+#include "devlcd.h"
 #include <vt.h>
 #include <pico/multicore.h>
 #include <pico/bootrom.h>
@@ -131,6 +132,18 @@ int plt_dev_ioctl(uarg_t request, char *data)
          * watchdog feed suppressed rather than racing it. */
         plt_bootsel_enter();
         return 0;   /* only if the bootrom declined to reboot */
+    }
+    if (request == PICOIOC_VTSHADOW)
+    {
+        /* Snapshot exactly what is rendered on the LCD so userspace can
+         * compare it with the serial stream (MASTER_PLAN C1).  Copy the
+         * 3.2 KB shadow straight from kernel BSS to user space -- no
+         * staging buffer (only ~2.6 KB RAM free). */
+        uint8_t cx, cy;
+        vt_get_cursor(&cx, &cy);
+        uputc(cx, data);
+        uputc(cy, data + 1);
+        return uput((const unsigned char *)lcd_shadow_ptr(), data + 2, 80 * 40);
     }
     if (request == PICOIOC_CRASHLOG)
     {

@@ -30,6 +30,7 @@ struct fb_colors {
 
 void devlcd_init(void);
 void lcd_task(void);   /* repaint rows deferred while the SD card owned spi0 */
+const void *lcd_shadow_ptr(void);   /* what is rendered on the LCD (80x40) */
 int  devfb_open(uint_fast8_t minor, uint16_t flag);
 int  devfb_close(uint_fast8_t minor);
 int  devfb_write(uint_fast8_t minor, uint_fast8_t rawflag, uint_fast8_t flag);

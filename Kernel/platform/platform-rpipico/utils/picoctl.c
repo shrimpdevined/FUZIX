@@ -14,6 +14,7 @@ int main(int argc, char **argv)
         puts("\tflash\tReset into flash mode.");
         puts("\tdiag\tShow console/VT drop counters and core1 liveness.");
         puts("\tcrashlog [file]\tDump last fatal-exception record (to file).");
+        puts("\tvtshadow\tDump the LCD shadow buffer (serial vs LCD stream).");
         return 0;
     }
     int fd = open("/dev/sys", O_RDWR, 0);
@@ -92,6 +93,33 @@ int main(int argc, char **argv)
         fputs("\n--- end ---\n", out);
         if (out != stdout)
             fclose(out);
+        close(fd);
+        return 0;
+    }
+
+    if (strcmp(argv[1], "vtshadow") == 0)
+    {
+        struct pico_vtshadow s;
+        int y, x;
+        if (ioctl(fd, PICOIOC_VTSHADOW, &s) != 0)
+        {
+            perror("Failed to read VT shadow");
+            close(fd);
+            return 1;
+        }
+        printf("CURSOR %u %u\n", (unsigned)s.cursorx, (unsigned)s.cursory);
+        for (y = 0; y < 40; y++) {
+            int last = 79;
+            while (last >= 0 && s.shadow[y][last] == ' ')
+                last--;
+            if (last < 0)
+                continue;   /* skip blank rows */
+            printf("%02d|", y);
+            for (x = 0; x <= last; x++)
+                putchar(s.shadow[y][x] ? s.shadow[y][x] : ' ');
+            putchar('\n');
+        }
+        puts("---");
         close(fd);
         return 0;
     }

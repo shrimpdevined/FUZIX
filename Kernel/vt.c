@@ -275,6 +275,24 @@ void vtdefer(unsigned char c)
 	irqrestore(irq);
 }
 
+/* Queue a whole run of bytes atomically (MASTER_PLAN D2).  Used by the
+ * vtoutput() reentry path so a multi-byte write is not truncated to one
+ * byte when another writer is mid-render. */
+static void vtdefer_buf(const unsigned char *p, unsigned int len)
+{
+	irqflags_t irq = di();
+	while (len--) {
+		if ((uint16_t)(vtd_head - vtd_tail) < VT_DEFER_LEN) {
+			vtd_buf[vtd_head & VT_DEFER_MASK] = *p++;
+			vtd_head++;
+		} else {
+			vtd_dropped++;
+			break;
+		}
+	}
+	irqrestore(irq);
+}
+
 /* Drop queued text, e.g. when switching the LCD into graphics mode. */
 void vt_purge(void)
 {
@@ -321,6 +339,12 @@ void vt_pump(unsigned int budget)
 	(void)vt_drain(budget);
 }
 
+void vt_get_cursor(uint8_t *x, uint8_t *y)
+{
+	*x = cursorx;
+	*y = cursory;
+}
+
 /* Copy the last n bytes enqueued for the VT/LCD into dst.  Used by the
  * fatal handler to capture what was on its way to the console; the ring is
  * populated in FIFO order by vtdefer() under di(), so a single snapshot is
@@ -347,16 +371,12 @@ void vtoutput(unsigned char *p, unsigned int len)
 	irqflags_t irq;
 
 	/* Some other path can still re-enter us before the deferred queue is
-	 * drained.  Queue the byte instead of overwriting a single pending
-	 * slot, so no echo is lost. */
+	 * drained.  Queue the WHOLE run (MASTER_PLAN D2) instead of just the
+	 * first byte -- a multi-byte write must not be truncated on reentry. */
 	irq = di();
 	if (vtbusy) {
-		if ((uint16_t)(vtd_head - vtd_tail) < VT_DEFER_LEN) {
-			vtd_buf[vtd_head & VT_DEFER_MASK] = *p;
-			vtd_head++;
-		} else
-			vtd_dropped++;
 		irqrestore(irq);
+		vtdefer_buf(p, len);
 		return;
 	}
 	vtbusy = 1;
@@ -401,7 +421,9 @@ void vtoutput(unsigned char *p, unsigned int len)
 			}
 	}
 	vt_cursor_on();
-	vtbusy = 0;
+	irq = di();
+	vtbusy = 0;	/* clear under di() so a reentrant writer cannot race (D2) */
+	irqrestore(irq);
 }
 
 /* Note: multiple vt switching handled by platform wrapper */

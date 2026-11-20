@@ -169,8 +169,10 @@ void plot_char(int8_t y, int8_t x, uint16_t c) {
 
 static uint16_t lcd_row_buf[LCD_WIDTH];
 
-static void lcd_redraw_row(int8_t y) {
-    if (!lcd_ready || gfx_mode || lcd_bus_busy() || y < 0 || y >= VT_HEIGHT) return;
+/* Returns true only if the row was actually redrawn (MASTER_PLAN D3): the
+ * caller must keep row_dirty set on a skip so the repaint is not lost. */
+static bool lcd_redraw_row(int8_t y) {
+    if (!lcd_ready || gfx_mode || lcd_bus_busy() || y < 0 || y >= VT_HEIGHT) return false;
     uint16_t fg_norm = __builtin_bswap16(term_fg);
     uint16_t bg_norm = __builtin_bswap16(term_bg);
     lcd_set_window(0, y * 8, LCD_WIDTH - 1, y * 8 + 7);
@@ -193,6 +195,7 @@ static void lcd_redraw_row(int8_t y) {
         spi_write_blocking(spi0, (uint8_t *)lcd_row_buf, sizeof(lcd_row_buf));
     }
     lcd_cs_release();
+    return true;
 }
 
 void clear_lines(int8_t y, int8_t ct) {
@@ -284,11 +287,21 @@ void lcd_task(void) {
     for (int y = 0, n = 0; y < VT_HEIGHT && n < 4; y++) {
         if (!row_dirty[y])
             continue;
-        lcd_redraw_row(y);
-        row_dirty[y] = 0;
-        n++;
+        /* Only clear the dirty flag if the row was really drawn; a skipped
+         * row (bus stolen by SD) must be retried later (MASTER_PLAN D3). */
+        if (lcd_redraw_row(y)) {
+            row_dirty[y] = 0;
+            n++;
+        }
     }
 }
+/* Pointer to the LCD shadow so the ioctl can uput() it straight to user
+ * space without a 3.2 KB kernel-side staging buffer (RAM budget). */
+const void *lcd_shadow_ptr(void)
+{
+    return vt_shadow;
+}
+
 void vtattr_notify(void)  { cur_attr = vtattr; }
 void do_beep(void)        { }
 

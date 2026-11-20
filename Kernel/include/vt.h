@@ -57,6 +57,8 @@ uint16_t vt_pending(void);
 void vt_pump(unsigned int budget);
 /* Snapshot the tail of the deferred console ring for the crash log (S5). */
 void vt_crash_tail(unsigned char *dst, unsigned int n);
+/* Current VT cursor position (for LCD shadow observability). */
+void vt_get_cursor(uint8_t *x, uint8_t *y);
 /* Mode switcher functions */
 void vt_save(struct vt_switch *vt);
 void vt_load(struct vt_switch *vt);

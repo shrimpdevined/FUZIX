@@ -15,6 +15,15 @@
 #define PICOIOC_CRASHLOG 0x0003
 #define PICO_CRASHLOG_MAGIC 0x43525348UL	/* "CRSH" */
 
+/* VT/LCD shadow buffer snapshot (MASTER_PLAN C1): read exactly what is
+ * rendered on the LCD so serial and LCD can be compared byte-for-byte. */
+#define PICOIOC_VTSHADOW 0x0004
+struct pico_vtshadow {
+    uint8_t cursorx;
+    uint8_t cursory;
+    uint8_t shadow[40][80];   /* VT_HEIGHT x VT_WIDTH on rpipico */
+};
+
 struct pico_crashlog {
     uint32_t magic;
     uint32_t len;
