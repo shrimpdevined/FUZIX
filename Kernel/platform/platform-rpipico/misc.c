@@ -17,6 +17,30 @@ uaddr_t ramtop = (uaddr_t) PROGTOP;
 uint8_t sys_stubs[sizeof(struct exec)];
 uint16_t swap_dev = 0xffff;
 
+/* Kernel-stack overflow canary (MASTER_PLAN M1).  The syscall stack starts at
+ * udata+UDATA_SIZE and grows DOWN toward the u_data struct; the historic
+ * "panic: corrupt inode" came from it overwriting u_files/u_cwd.  Place a
+ * magic word in the unused u_s[] padding just above u_data (offset 0x120),
+ * initialized at boot and inherited by fork/exec via the u_data copy.  The
+ * tick checks it; a value change means the stack reached the guard.
+ * Guarded by a compile-time assert so a future u_data growth cannot collide. */
+#define KSTACK_CANARY_OFF  0x120u
+#define KSTACK_CANARY_MAGIC 0x5A5AA5A5u
+_Static_assert(sizeof(u_data) <= KSTACK_CANARY_OFF,
+               "u_data grew past kstack canary offset");
+
+void plt_stack_canary_init(void)
+{
+    *(volatile uint32_t *)((uint8_t *)&udata + KSTACK_CANARY_OFF) =
+        KSTACK_CANARY_MAGIC;
+}
+
+uint8_t plt_stack_canary_ok(void)
+{
+    return *(volatile uint32_t *)((uint8_t *)&udata + KSTACK_CANARY_OFF) ==
+           KSTACK_CANARY_MAGIC;
+}
+
 /* Unused on this port */
 
 void set_cpu_type(void) {}

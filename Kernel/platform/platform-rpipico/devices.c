@@ -64,6 +64,12 @@ static void timer_tick_cb(unsigned alarm)
     irqflags_t irq = di();
     udata.u_ininterrupt = 1;
 
+    /* Kernel-stack canary check (MASTER_PLAN M1).  A changed guard word means
+     * the syscall stack grew down into the u_data struct; panic with a
+     * distinct message before the corruption spreads to inodes/fd tables. */
+    if (!plt_stack_canary_ok())
+        panic("kstack overflow");
+
     /* Feed the watchdog FIRST, before any potentially-long work (I2C keyboard
      * poll, tty drain).  Linux's watchdog discipline touches the device early
      * so a slow handler still has the full timeout window; doing it last meant
@@ -142,6 +148,9 @@ extern void netdev_init(void);
 
 void device_init(void)
 {
+    /* Arm the kernel-stack canary once udata is valid (MASTER_PLAN M1). */
+    plt_stack_canary_init();
+
     /* Timer interrup must be initialized before blcok devices.
        set_boot_line uses pause syscall which will not be operational otherwise. */
     hardware_alarm_claim(0);

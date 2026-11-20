@@ -9,6 +9,10 @@
 extern void flash_dev_init(void);
 extern void sd_rawinit(void);
 
+/* Kernel-stack overflow canary (MASTER_PLAN M1) */
+extern void plt_stack_canary_init(void);
+extern uint8_t plt_stack_canary_ok(void);
+
 extern void contextswitch(ptptr p);
 
 struct svc_frame
