@@ -200,16 +200,23 @@ void tmpfree(void *p)
  * an active I/O so the block/bunlock should be fine - but not needed. In
  * async mode they are
  */
-static void bdput(regptr bufptr bp)
+static int bdput(regptr bufptr bp)
 {
+	int ret = 0;
 	block_s(bp);
 	if (bp->bf_dirty) {
-		/* MASTER_PLAN F4: do not discard a failed writeback.  bdwrite()
-		 * normally sets u_error itself, but guarantee a typed error so
-		 * sync()/bdrop() callers can observe it. */
-		if (bdwrite(bp) != BLKSIZE && !udata.u_error)
-			udata.u_error = EIO;
-		bp->bf_dirty = false;
+		/* Data retention: ONLY drop bf_dirty after a successful write.
+		 * Clearing it on failure permanently discards data that never
+		 * reached media (the buffer is later reused and the dirty data
+		 * is gone forever).  Keeping it dirty lets the next sync() retry.
+		 * bdwrite() normally sets u_error; guarantee a typed error so
+		 * sync()/bdrop() callers can observe the failure. */
+		if (bdwrite(bp) != BLKSIZE) {
+			if (!udata.u_error)
+				udata.u_error = EIO;
+			ret = -1;
+		} else
+			bp->bf_dirty = false;
 		bunlock_s(bp);
 		/* MASTER_PLAN F1: no per-buffer d_flush here.  Calling a real
 		 * device flush once per dirty buffer made sync()/mount run a full
@@ -218,6 +225,7 @@ static void bdput(regptr bufptr bp)
 		 * bdrop() below flushes once for a media change/close. */
 	} else
 		bunlock_s(bp);
+	return ret;
 }
 
 /*
@@ -226,14 +234,17 @@ static void bdput(regptr bufptr bp)
  * caller (sync()) issues one d_flush() per mounted device after all buffers
  * have been written, which is both cheaper and a real ordering barrier.
  */
-void bufsync(void)
+int bufsync(void)
 {
 	regptr bufptr bp;
+	int ret = 0;
 
 	for (bp = bufpool; bp < bufpool_end; ++bp) {
 		if (bp->bf_dev != NO_DEVICE)
-		        bdput(bp);
+		        if (bdput(bp))
+		            ret = -1;
 	}
+	return ret;
 }
 
 /*
@@ -312,8 +323,14 @@ bufptr freebuf(void)
 
 	block(oldest);
 	if (oldest->bf_dirty) {
-		bdwrite(oldest);
-		oldest->bf_dirty = false;
+		/* Data retention: only drop bf_dirty on a successful writeback.
+		 * bread() immediately re-tags this buffer before any later
+		 * writeback, so retaining dirty here is safe and gives the next
+		 * sync() a chance to retry data that failed to reach media. */
+		if (bdwrite(oldest) == BLKSIZE)
+			oldest->bf_dirty = false;
+		else if (!udata.u_error)
+			udata.u_error = EIO;
 	}
 	return oldest;
 }

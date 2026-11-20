@@ -395,8 +395,14 @@ static int sync_flush_devices(void)
 	for (m = fs_tab; m < fs_tab + NMOUNTS; m++) {
 		if (m->m_dev == NO_DEVICE)
 			continue;
+		/* Data retention: partitions on the same physical drive (same
+		 * major, same drive nibble minor>>4) share one flush barrier.
+		 * Deduplicating by exact m_dev called d_flush twice for hda1+hda2
+		 * -> two full Dhara GC checkpoints per barrier (F1 regression). */
 		for (n = fs_tab; n < m; n++)
-			if (n->m_dev == m->m_dev)
+			if (n->m_dev != NO_DEVICE &&
+			    major(n->m_dev) == major(m->m_dev) &&
+			    (minor(n->m_dev) >> 4) == (minor(m->m_dev) >> 4))
 				break;
 		if (n < m)
 			continue;
@@ -445,8 +451,9 @@ void sync(void)
 
 	/* 2. First barrier: push inodes + all buffered metadata/data to the
 	 *    device before any superblock may claim the volume is clean. */
-	bufsync();
-	ok = sync_flush_devices();
+	ok = bufsync();              /* data retention: failed writeback -> dirty fs */
+	if (sync_flush_devices())
+		ok = -1;
 
 	/* 3. Superblocks.  Only if the first barrier succeeded.  For a volume
 	 *    going clean we write the on-disk clean mark (FMOD_CLEAN) but keep
@@ -483,7 +490,8 @@ void sync(void)
 	/* 4. Final barrier.  The superblock write above is buffered through
 	 *    bdwrite(); this buffer-pool drain plus device flush makes the
 	 *    clean mark durable before we admit it in memory. */
-	bufsync();
+	if (bufsync())
+		ok = -1;
 	if (sync_flush_devices())
 		ok = -1;
 

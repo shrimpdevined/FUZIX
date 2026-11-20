@@ -159,6 +159,7 @@ bget ../../../Applications/util/chgrp
 bget ../../../Applications/util/chmod
 bget ../../../Applications/util/chown
 bget ../../../Applications/util/cksum
+bget ../../../Applications/util/verify
 bget ../../../Applications/util/cmp
 bget ../../../Applications/util/cp
 bget ../../../Applications/util/cut
@@ -243,6 +244,7 @@ chmod 0755 chgrp
 chmod 0755 chmod
 chmod 0755 chown
 chmod 0755 cksum
+chmod 0755 verify
 chmod 0755 cmp
 chmod 0755 cp
 chmod 0755 cut

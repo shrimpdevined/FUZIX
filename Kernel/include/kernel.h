@@ -970,7 +970,7 @@ extern int bfree(bufptr bp, uint_fast8_t dirty); /* dirty: 0=clean, 1=dirty (wri
 extern void *tmpbuf(void);
 extern void tmpfree(void *p);
 extern bufptr zerobuf(void);
-extern void bufsync(void);
+extern int bufsync(void);   /* -1 if any buffer writeback failed */
 extern bufptr bfind(uint16_t dev, blkno_t blk);
 extern void bdrop(uint16_t dev);
 extern bufptr freebuf(void);

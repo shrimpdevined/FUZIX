@@ -93,7 +93,15 @@ static int flash_sync(void)
 {
 	dhara_error_t err = DHARA_E_NONE;
 	dhara_map_sync(&dhara, &err);
-	return err == DHARA_E_NONE ? 0 : -1;
+	if (err != DHARA_E_NONE) {
+		/* Data retention: d_ioctl() turns a -1 with no errno into ENOTTY,
+		 * which d_flush() treats as "unsupported" and reports success.
+		 * A typed error keeps the filesystem dirty when the checkpoint
+		 * actually failed (DATA_RETENTION_DESIGN A1). */
+		udata.u_error = EIO;
+		return -1;
+	}
+	return 0;
 }
 
 void flash_dev_init(void)

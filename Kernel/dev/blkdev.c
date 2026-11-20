@@ -75,15 +75,21 @@ int blkdev_open(uint_fast8_t minor, uint16_t flags)
 static int translate_lba(uint_fast8_t minor)
 {
     uint_fast8_t partition = minor & 0x0F;
+    uint32_t count;
+
+    count = partition ? blk_op.blkdev->lba_count[partition-1]
+                      : blk_op.blkdev->drive_lba_count;
+    /* Data retention: validate the WHOLE transfer span, not just the first
+     * sector.  A multi-block write near a partition end could otherwise
+     * spill into the adjacent partition (e.g. clobber hda1's superblock).
+     * Subtraction form avoids uint32 overflow; nblock==0 is harmless. */
+    if (blk_op.lba >= count || blk_op.nblock > count - blk_op.lba)
+        return 1;
+
     if(partition == 0){
 	/* partition 0 is the whole disk and requires no translation */
-	if(blk_op.lba >= blk_op.blkdev->drive_lba_count)
-	    return 1;
     } else {
 	/* partitions 1+ require us to add in an offset */
-	if(blk_op.lba >= blk_op.blkdev->lba_count[partition-1])
-	    return 1;
-
 	blk_op.lba += blk_op.blkdev->lba_first[partition-1];
     }
     return 0;
@@ -254,9 +260,15 @@ int blkdev_ioctl(uint_fast8_t minor, uarg_t request, char *data)
     {
         case BLKFLSBUF:
         {
-            if (blk_op.blkdev->flush)
-                return blk_op.blkdev->flush();
-            else
+            if (blk_op.blkdev->flush) {
+                int r = blk_op.blkdev->flush();
+                /* Data retention: a flush failure must carry a typed errno,
+                 * otherwise d_ioctl() manufactures ENOTTY and d_flush()
+                 * reports success -> fs declared clean over non-durable data. */
+                if (r && !udata.u_error)
+                    udata.u_error = EIO;
+                return r;
+            } else
                 return 0;
         }
 
@@ -266,6 +278,7 @@ int blkdev_ioctl(uint_fast8_t minor, uarg_t request, char *data)
             if (blk_op.blkdev->trim)
             {
                 blk_op.lba = ugetw(data);
+                blk_op.nblock = 1;   /* TRIM is a single sector */
                 if (translate_lba(minor))
                     return -1;
                 return blk_op.blkdev->trim();

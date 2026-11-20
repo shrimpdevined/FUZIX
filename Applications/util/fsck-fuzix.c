@@ -210,29 +210,13 @@ int perform_fsck(char *name)
 
     if (superblock.s_fmod == FMOD_DIRTY) {
         puts("Filesystem was not cleanly unmounted.");
-        if (aflag) {
-            /*
-             * Automatic boot-time mode.  The FTL underneath this
-             * filesystem journals its metadata, so an unclean power
-             * loss does not corrupt the structure.  Clear the stale
-             * marker without prompting and without forcing a reboot;
-             * an operator invoking fsck by hand still gets the full
-             * interactive repair.
-             */
-            /* Never write through the FTL to the *mounted* root: that
-             * path stalled boot during garbage collection.  For other
-             * (unmounted) filesystems it is safe and necessary, otherwise
-             * the mount forces r/o and firstboot cannot create /home. */
-            if (!rootfs) {
-                superblock.s_fmod = FMOD_CLEAN;
-                dwrite((blkno_t) 1, (char *) &superblock);
-            }
-            return 0;
-        }
         error |= 1;
     }
-    else if (aflag)
-        return 0;
+    /* Data retention (G1): -a must run the full pass1..pass5 validation.
+     * The old code returned here after merely clearing the dirty marker,
+     * so a boot-time `fsck -a` validated nothing.  yflag (set by -a) makes
+     * every prompt auto-answer, and the finalization block alone decides
+     * whether FMOD_CLEAN may be written -- no shortcut needed. */
 
     /* Verify the fsize and isize parameters */
     if (superblock.s_mounted == SMOUNTED_WRONGENDIAN) {
@@ -284,13 +268,22 @@ int perform_fsck(char *name)
 
     /* If we fixed things, and no errors were left uncorrected */
     if ((error & 69) == 1) {	/* 64 4 1 moust be 1 */
-        superblock.s_fmod = FMOD_CLEAN;
-        dwrite((blkno_t) 1, (char *) &superblock);
-        if (rootfs) {
+        /* Data retention: never write through the FTL to the *mounted*
+         * root (rc runs -a before `remount -n / rw`): leave its on-disk
+         * marker dirty so the next boot validates again.  hda2 is
+         * unmounted and MUST be marked clean or fmount forces r/o and
+         * firstboot cannot create /home. */
+        if (!rootfs) {
+            superblock.s_fmod = FMOD_CLEAN;
+            dwrite((blkno_t) 1, (char *) &superblock);
+        } else if (!aflag) {
+            /* Interactive repair of a mounted root still needs a reboot.
+             * -a runs unattended at boot: never prompt, never sleep, never
+             * reboot (pass2 sets bit 1 unconditionally, so this used to
+             * fire on every unclean shutdown). */
             error |= 2;
             puts("**** Root filesystem was modified, immediate reboot required.");
             sleep(5);
-            /* Sync it all out and reboot */
             uadmin(A_REBOOT, 0, 0);
         }
     }
@@ -301,6 +294,8 @@ int perform_fsck(char *name)
 
 int main(int argc, char *argv[])
 {
+    int rescans = 0;
+
     if (argc == 3 && strcmp(argv[1], "-a") == 0) {
         aflag = 1;
         yflag = 1;   /* -a implies auto-yes: never prompt at boot */
@@ -309,12 +304,18 @@ int main(int argc, char *argv[])
         fputs("syntax: fsck-fuzix [-a] [devfile]\n", stderr);
         return 16;
     }
-    /* Re-run each time the error code is 'do another run over the disk' */
+    /* Re-run each time the error code is 'do another run over the disk',
+     * but never loop forever at boot on a pathological image. */
     do {
         error = 0;
         perform_fsck(argv[1]);
-        if (error & 64)
+        if (error & 64) {
+            if (++rescans > 3) {
+                puts("Too many rescans; filesystem still inconsistent.");
+                break;   /* error keeps bit 64 -> nonzero exit, no CLEAN written */
+            }
             puts("Rescanning disk");
+        }
     }
     while(error & 64);
     exit(error);

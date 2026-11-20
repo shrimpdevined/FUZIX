@@ -104,6 +104,7 @@ SRCS  = \
 	termcap.c \
 	umount.c \
 	uname.c \
+	verify.c \
 	uniq.c \
 	uptime.c \
 	uud.c \
