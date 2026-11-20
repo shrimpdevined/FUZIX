@@ -5,6 +5,7 @@
 #include "lib/dhara/nand.h"
 #include "picosdk.h"
 #include <hardware/flash.h>
+#include <hardware/watchdog.h>
 #include "globals.h"
 
 /* Bounded wait for the other core.  The old *_blocking() call spins forever
@@ -16,8 +17,12 @@
  * The SDK flash APIs are RAM-resident but DO NOT mask interrupts, and this is
  * an XIP build with a flash-resident vector table, so we must still disable
  * IRQs around the actual erase/program (the canonical SDK flash_safe_execute
- * sequence).  Only the lockout START is time-bounded; END does not wait. */
-#define FLASH_LOCKOUT_TIMEOUT_US 200000UL   /* 200 ms */
+ * sequence).  BOTH the lockout START and END are time-bounded (MASTER_PLAN
+ * S6): END used to be unbounded, and a stuck lockout mutex would park core1
+ * forever while flash_lockout_active suppressed the tick's wedge detector. */
+#define FLASH_LOCKOUT_TIMEOUT_US 200000UL   /* 200 ms per attempt */
+#define FLASH_LOCKOUT_ATTEMPTS 3
+#define FLASH_BACKOFF_US 200UL
 
 /* Set while core0 holds core1 in the multicore lockout for a flash
  * erase/program.  Core1's heartbeat stops during lockout, so the tick's
@@ -27,10 +32,37 @@
  * by core0's tick, no cross-core ordering needed. */
 volatile uint8_t flash_lockout_active;
 
+/* A start can fail when core1 is momentarily inside a TinyUSB critical
+ * section and cannot service the lockout FIFO IRQ.  The SDK cancels a failed
+ * attempt (and releases its mutex) before returning, so retrying is safe. */
+static bool flash_lockout_start(void)
+{
+	for (unsigned i = 0; i < FLASH_LOCKOUT_ATTEMPTS; i++) {
+		if (multicore_lockout_start_timeout_us(FLASH_LOCKOUT_TIMEOUT_US))
+			return true;
+		if (i + 1 < FLASH_LOCKOUT_ATTEMPTS)
+			busy_wait_us(FLASH_BACKOFF_US);
+	}
+	return false;
+}
+
+/* multicore_lockout_end_blocking() has no timeout.  Bound the release and,
+ * if it still cannot be acquired, reboot: leaving core1 parked would kill
+ * USB, and flash_lockout_active would stop the tick from detecting the wedge. */
+static void flash_lockout_end(void)
+{
+	for (unsigned i = 0; i < FLASH_LOCKOUT_ATTEMPTS; i++)
+		if (multicore_lockout_end_timeout_us(FLASH_LOCKOUT_TIMEOUT_US))
+			return;
+	watchdog_reboot(0, 0, 0);
+	for (;;)
+		tight_loop_contents();
+}
+
 int dhara_nand_erase(const struct dhara_nand *n, dhara_block_t b,
                      dhara_error_t *err)
 {
-    if (!multicore_lockout_start_timeout_us(FLASH_LOCKOUT_TIMEOUT_US)) {
+    if (!flash_lockout_start()) {
         /* Do NOT report DHARA_E_RECOVER here: dhara's try_recover() swallows
          * that code when the journal is not already in recovery, so a
          * persistent lockout failure became an unbounded 200 ms retry loop
@@ -45,7 +77,7 @@ int dhara_nand_erase(const struct dhara_nand *n, dhara_block_t b,
         flash_range_erase(FLASH_OFFSET + ((uint64_t)b * 4096), 4096);
         irqrestore(f);
     }
-    multicore_lockout_end_blocking();
+    flash_lockout_end();
     flash_lockout_active = 0;
     if (err) *err = DHARA_E_NONE;
     return 0;
@@ -55,7 +87,7 @@ int dhara_nand_prog(const struct dhara_nand *n, dhara_page_t p,
                     const uint8_t *data,
                     dhara_error_t *err)
 {
-    if (!multicore_lockout_start_timeout_us(FLASH_LOCKOUT_TIMEOUT_US)) {
+    if (!flash_lockout_start()) {
         if (err) *err = DHARA_E_TOO_BAD;
         return -1;
     }
@@ -65,7 +97,7 @@ int dhara_nand_prog(const struct dhara_nand *n, dhara_page_t p,
         flash_range_program(FLASH_OFFSET + ((uint64_t)p * 512), data, 512);
         irqrestore(f);
     }
-    multicore_lockout_end_blocking();
+    flash_lockout_end();
     flash_lockout_active = 0;
     if (err) *err = DHARA_E_NONE;
     return 0;
