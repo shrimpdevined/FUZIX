@@ -317,9 +317,15 @@ int devfb_ioctl(uint_fast8_t minor, uarg_t request, char *data) {
     case FB_SET_MODE:
         gfx_mode = ((uintptr_t)data == FB_MODE_GFX);
         if (gfx_mode) {
-            /* Queued text belongs to the terminal we are leaving. */
-            vt_purge();
+            /* MASTER_PLAN C5: render everything still queued for the VT
+             * before the framebuffer takes over the panel.  Those bytes
+             * already went out the serial sink, so dropping them here is
+             * what made LCD/serial diverge.  This runs in syscall (thread)
+             * context so the SPI render is safe. */
+            vt_pump(4096);
+            lcd_task();
         } else {
+            /* Resync the shadow with the terminal state we return to. */
             clear_lines(0, VT_HEIGHT);
         }
         return 0;
