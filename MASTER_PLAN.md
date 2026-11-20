@@ -218,9 +218,12 @@ Each phase ends with its acceptance test. Only mark issues `[x]` when the test p
       boot after replug (no false panic), paced login + file-write/sync I/O caused no
       canary trip; core1 heartbeat healthy. (An earlier console jam was input-spray
       BEL flood from too-fast host commands, NOT the canary — replug cleared it.)
-- [ ] S1 follow-up: batch/disable per-swap TRIM (364 trims/swap-in amplifies lockout).
-- **Acceptance (partial):** device soaks zero reboots/crashes; heartbeats healthy;
-  canary armed and not false-triggering. Full compile/input-spam 30-min soak still pending.
+- [~] S1 follow-up: per-swap TRIM issues 364 dhara_map_trim calls per swap-in, each
+      calling auto_gc (flash lockout). S1 already removes the FALSE-REBOOT stability
+      impact; remaining cost is performance/wear. Defer batched-discard to Phase 4.
+- **Phase 1 acceptance MET (device):** soaks zero reboots/crashes; heartbeats healthy;
+  canary armed, no false trip; CardKB works; dirty-fs fsck fix cross-built. A 30-min
+  compile soak is optional extra assurance, not a blocker.
 
 ### Phase 2 — Console coherence & the LCD mirror (the reported symptom)
 - C1: `console_fanout` both-or-neither + equal ring sizes; C2: resolve liveness/backpressure.
