@@ -964,7 +964,7 @@ static pid_t getty(const char **argv, const char *id)
 					 * one line (MASTER_PLAN C7).  Force column 0 so
 					 * every retry prompt starts at the left margin
 					 * without adding an extra blank line. */
-					putstr("\r");
+					putstr("\r\n");
 					continue;
 				}
 
@@ -1067,6 +1067,12 @@ static void spawn_login(struct passwd *pwd, const char *tty, const char *id, con
 
 	if (!showfile("/etc/motd"))
 		crlf();
+
+	/* Discard keystrokes that arrived during authentication (e.g. the
+	 * user pressing Enter to wake the LCD).  Otherwise the new shell
+	 * reads them as empty commands and prints a prompt for each one,
+	 * stacking several "user@host:~$" prompts on one LCD row. */
+	tcflush(0, TCIFLUSH);
 
 	/* and spawn the shell */
 
