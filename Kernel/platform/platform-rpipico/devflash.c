@@ -60,8 +60,23 @@ static uint_fast8_t transfer_cb(void)
 		dhara_map_read(&dhara, blk_op.lba, blk_op.addr, &err);
 	else
 		dhara_map_write(&dhara, blk_op.lba, blk_op.addr, &err);
-	
-	return (err == DHARA_E_NONE);
+
+	if (err == DHARA_E_NONE)
+		return 1;
+
+	/* MASTER_PLAN F4 (low-risk subset): the FTL error used to be lost behind
+	 * a bare short transfer.  Map it to a typed errno; blkdev's xferfail
+	 * paths now preserve an error already set by the callback. */
+	switch (err) {
+	case DHARA_E_MAP_FULL:
+	case DHARA_E_JOURNAL_FULL:
+		udata.u_error = ENOSPC;
+		break;
+	default:
+		udata.u_error = EIO;
+		break;
+	}
+	return 0;
 }
 
 static int trim_cb(void)

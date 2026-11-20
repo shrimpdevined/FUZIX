@@ -100,8 +100,13 @@ int blkdev_rw(uint_fast8_t minor, uint32_t lba, uint8_t *addr,
 {
     uint_fast8_t drive = minor >> 4;
 
-    if (drive >= MAX_BLKDEV || blkdev_table[drive].transfer == NULL)
+    /* MASTER_PLAN F4: the raw 32-bit LBA path used by FatFs used to return
+     * -1 with no errno, losing the reason for the failure.  Always leave a
+     * typed error in u_error for the caller. */
+    if (drive >= MAX_BLKDEV || blkdev_table[drive].transfer == NULL) {
+	udata.u_error = ENXIO;
 	return -1;
+    }
 
     blk_op.blkdev = &blkdev_table[drive];
     blk_op.is_user = 0;
@@ -110,13 +115,20 @@ int blkdev_rw(uint_fast8_t minor, uint32_t lba, uint8_t *addr,
     blk_op.lba = lba;
     blk_op.nblock = nblock;
 
-    if (translate_lba(minor))
+    if (translate_lba(minor)) {
+	udata.u_error = EIO;
 	return -1;
+    }
 
     while (blk_op.nblock) {
 	uint_fast8_t n = blk_op.blkdev->transfer();
-	if (n == 0)
+	if (n == 0) {
+	    /* A transfer callback may have set a more specific error (eg the
+	     * Dhara FTL maps its codes to errno); only default to EIO. */
+	    if (!udata.u_error)
+		udata.u_error = EIO;
 	    return -1;
+	}
 	blk_op.nblock -= n;
 	blk_op.addr += n * BLKSIZE;
 	blk_op.lba += n;
@@ -201,7 +213,10 @@ static int blkdev_transfer(uint_fast8_t minor, uint_fast8_t rawflag)
 
     return count << BLKSHIFT; /* 10/10, would transfer sectors again */
 xferfail:
-    udata.u_error = EIO;
+    /* Preserve a typed error set by the transfer callback (MASTER_PLAN F4);
+     * fall back to EIO only when it did not supply one. */
+    if (!udata.u_error)
+        udata.u_error = EIO;
     return -1;
 }
 

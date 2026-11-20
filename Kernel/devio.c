@@ -204,7 +204,11 @@ static void bdput(regptr bufptr bp)
 {
 	block_s(bp);
 	if (bp->bf_dirty) {
-		bdwrite(bp);
+		/* MASTER_PLAN F4: do not discard a failed writeback.  bdwrite()
+		 * normally sets u_error itself, but guarantee a typed error so
+		 * sync()/bdrop() callers can observe it. */
+		if (bdwrite(bp) != BLKSIZE && !udata.u_error)
+			udata.u_error = EIO;
 		bp->bf_dirty = false;
 		bunlock_s(bp);
 		/* MASTER_PLAN F1: no per-buffer d_flush here.  Calling a real
