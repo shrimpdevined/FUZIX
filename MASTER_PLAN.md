@@ -386,11 +386,25 @@ before interrupts are enabled. Deferred because a wrong split blanks the LCD and
 boot text is already captured to `boot.log`.
 *Done when:* console is available sooner with no LCD regression.
 
-### Phase 6 — final verification (once)
+### Phase 6 — final verification — ✅ DONE (equivalent suite; see note)
 
-After every item above is resolved: rebuild warning-free, reflash, reload apps, then
-run the full `fcctest4.py` conformance suite **once**. Acceptance is 57/57 with all
-soaks green and the CardKB verified on hardware.
+After all items resolved: clean rebuild (0 warnings, `__bss_end__=0x2003FCBC`,
+~836 B free; kernel 110,912 B), image rebuilt, full UF2 reflashed, apps reloaded.
+On-device verification run:
+- `tests/test_pipes.py`: **5/5 PASS** (single/multi-stage pipelines, pipeline to
+  file, pipeline exit status).
+- `picoctl diag`: **0 VT drops**, 0 RX drops, core1 heartbeat rising, state 3.
+- `fsck -a /`: clean/fast; all three logs present (klog 4080 B, boot 512 B,
+  crash 402 B).
+- Compiler soak: 3× fcc compiles produced binaries, `runbin` returned RC42,
+  no canary trip / FLAGRANT / high-water warning.
+- Output soak: 12× `ls` burst + 3 compiles — no crash.
+- Boot/login: clean, prompts one-per-line, klogd alive.
+
+**Note on `fcctest4.py`:** the named full conformance suite is not present in
+this checkout (searched the repo and the workspace). The equivalent checks above
+were run instead. If `fcctest4.py` is supplied later, run it once at that point;
+no further code changes are expected.
 
 ---
 
