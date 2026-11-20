@@ -406,6 +406,12 @@ soaks green and the CardKB verified on hardware.
   assert zero reboots (S1), `vt_dropped == 0` (D1), and understood `usb_tx_dropped`.
 - **Fault injection:** force a panic, a core1 fault, and a stack overflow; verify the
   reset record and recovery.
+- **Pipe statements:** shell pipelines (`|`) are a first-class contract. Verify on
+  device: `ls /bin | grep fsck`, `cat /etc/passwd | grep root | cut -d: -f1`,
+  multi-stage pipelines, pipelines into redirection (`... > file`), and pipeline
+  exit status (`true | false; echo $?` = 1). Host helper `tests/test_pipes.py`
+  drives these and asserts exact output; run it in Phase 6 and after any shell/tty
+  change (I2/I4 touch the tty path).
 - **Filesystem:** crash-simulate mid-sync; boot with a dirty FS; verify F2/F3.
 - **Final:** one full `fcctest4.py` run at the very end.
 
