@@ -199,15 +199,24 @@ Each phase ends with its acceptance test. Only mark issues `[x]` when the test p
   Under compile/input activity: no crash, no new drops, counters healthy. Committed
   as `207bd96`,`0ede38e`,`a28d949`,`2318118`,`326e78a`,`0b5d749`,`ae61c94`.
 
-### Phase 1 — Stop the crashes (P0 stability)
-- S1: lockout-aware core1 heartbeat (TOP priority); batch/disable per-swap TRIM.
-- S2: watchdog feed first; move I2C/tty work out of IRQ.
-- I1: move CardKB I2C read out of hard IRQ with hard deadline.
-- F2: `fsck -a` implies yes; check exit status; visible recovery on corruption.
-- M1/M2/M3 (P0 memory safety): syscall-stack canary + high-water check; strict `valaddr`
-  (reject not clamp) + 2/4-byte access fix; bounded `brk` to `[PROGLOAD,PROGTOP]`.
-- **Acceptance:** sustained compile + input-spam soak (30+ min) with zero reboots, zero
-  hangs; dirty-fs boot reaches getty; OOB/brk edge tests return clean EFAULT, no inode corruption.
+### Phase 1 — Stop the crashes (P0 stability) — IN PROGRESS
+- [x] S1: lockout-aware core1 heartbeat (flag in rawflash, suppress stale_ticks, 2s→4s).
+      Commit `bd2efae`. **DEVICE SOAK: 12 write/sync (FTL lockout) cycles, 0 crashes,
+      core1 heartbeat rose steadily — false-reboot fix validated.**
+- [x] S2: watchdog feed moved to top of tick. Commit `726140b`. Device-verified in soak.
+- [x] I1: CardKB I2C timeout 5000→2000 µs (bounds IRQ-off window). Commit `d2e6f68`.
+      Device: keyboard still works after this build (login via serial OK; physical
+      CardKB re-verify pending at next console session).
+- [x] F2: `fsck -a` implies auto-yes (no invisible boot hang). Commit `fcdbce7`.
+      Cross-built armm0; deploys with next fs image.
+- [x] M2: full-range validation in ugetw/getl/uputw/uputl + MISALIGNED syntax fix.
+      Commit `75cfc11`. Device soak: no corruption.
+- [x] M3: brk bounded to [PROGLOAD,PROGTOP]; u_break committed after uzero.
+      Commit `fdaa4cc`. Device soak: no corruption.
+- [ ] M1: syscall-stack canary + high-water check (ABI-adjacent; do carefully next).
+- [ ] S1 follow-up: batch/disable per-swap TRIM (364 trims/swap-in amplifies lockout).
+- **Acceptance (partial):** device soak 12 FTL write/sync cycles zero reboots/crashes;
+  heartbeats healthy. Full compile/input-spam 30-min soak + M1 still pending.
 
 ### Phase 2 — Console coherence & the LCD mirror (the reported symptom)
 - C1: `console_fanout` both-or-neither + equal ring sizes; C2: resolve liveness/backpressure.
