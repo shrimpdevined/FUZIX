@@ -102,7 +102,7 @@ Severity: **P0** ship-blocker (crash / data loss / forensics black hole), **P1**
 | [x] | I3 | P2 | Arrow keys injected ESC `[` in three separate calls → truncated escape sequence. | Atomic `di()/irqrestore()` (`4bbbb09`). Build verified. |
 | [x] | I4 | P1 | `TCSETSF` didn't flush the device staging ring; flush used tty minor as USB number. | Call `tty_flushinput()`; map via `ttymap` (`4e8cac6`). Build verified. |
 | [ ] | I5 | P2 | Touch has no event queue and its interrupt GPIO is unused; keyboard/touch share no input core. | Small evdev-like input core feeding both devices. |
-| [ ] | I6 | P2 | `TIOCINQ`, canonical `select()`, `VSUSP`, and BEL-on-^D don't match POSIX. | Correct tty ioctl semantics. |
+| [~] | I6 | P2 | `TIOCINQ`, canonical `select()`, `VSUSP`, and BEL-on-^D don't match POSIX. | **Partial (`17ff63c`):** VEOF no longer beeps; canonical `TIOCINQ` counts bytes to the next newline (0 if no complete line). Still open: `SELECT_IN` canonical readiness and `VSUSP`. |
 
 ### F — Filesystem / block / SD
 
@@ -133,7 +133,7 @@ Severity: **P0** ship-blocker (crash / data loss / forensics black hole), **P1**
 | [x] | K2 | P1 | Dead, uncompilable `CONFIG_DEV_PTY` block. | Deleted (`0ede38e`). |
 | [x] | K3 | P2 | Dead USB function, redundant `extern`, misnamed include guard. | Removed/renamed (`a28d949`). |
 | [ ] | K4 | P2 | Constants defined many times; circular config include; 26 copies of `used()`. | Single-source constants; break cycle; one helper. |
-| [ ] | K5 | P2 | No device model; stub `rawuart` registered as a real device. | `probe()`/`remove()` so absent hardware probes out. |
+| [x] | K5 | P2 | No device model; stub `rawuart` registered as a real device. | `probe()`/`remove()` added to `struct ttydriver`; stub `rawuart` now fails probe and is never mapped (`c4769e1`). Build verified. |
 
 ### L — Logging
 
@@ -155,8 +155,8 @@ deterministic watchdog recovery.
 | [x] | M2 | P0 | `valaddr()` clamped instead of rejecting; `uget/uput` accepted short ranges. | Full-range validation (`75cfc11`). Device soak clean. |
 | [x] | M3 | P0 | `brk_extend()` accepted addresses inside `udata` with no bounds. | Bounded to `[PROGLOAD,PROGTOP]` (`fdaa4cc`). Device soak clean. |
 | [ ] | M4 | P1 | User stack (7 KB) can underflow into kernel tables; headroom never measured. | Sentinel + high-water check; `-fstack-usage`. |
-| [ ] | M5 | P1 | Swap reserved 728 blocks for a 512-block partition; second map I/O ignored; OOM calls `panic()`. | `MAX_SWAPS 1`, check I/O, kill the offending process. |
-| [ ] | M6 | P1 | ELF loader doesn't validate `p_filesz<=p_memsz` or relocations; ignores read results. | Validate fields and check every read. |
+| [~] | M5 | P1 | Swap reserved 728 blocks for a 512-block partition; second map I/O ignored; OOM calls `panic()`. | **Partial (`fa1b3ef`):** `MAX_SWAPS 1`, swap read/write returns checked. Still open: replace the `swapin: no free block` panic with a controlled per-process kill (swapin runs in swapper task context where `doexit()` targets the wrong process). |
+| [x] | M6 | P1 | ELF loader doesn't validate `p_filesz<=p_memsz`, or guard aligned-size overflow; relocation bound and readi checks already present. | Reject `p_filesz > p_memsz` and size wrap in the first pass before committing state (`185c9ca`). Build verified. |
 | [-] | M7 | P2 | `kmalloc()` pool never initialized → always NULL. | **Not applicable to rpipico:** no compiled source in this build calls `kmalloc()` (only `flat.c`/`buddy.c` and other platforms do), and `--gc-sections` drops `mm/malloc.c` from the final ELF (verified: no `kmalloc`/`kmemaddblk` symbol in `fuzix.elf.map`). No driver silently fails here. | No `kmalloc` reliance in the rpipico image. |
 | [ ] | M8 | P2 | No `BUG_ON`/`WARN_ON`, no stack protector. | Add macros + `-fstack-protector-strong`. |
 | [ ] | M9 | P2 | OFT/ITAB/PTAB may be too small for the full compiler chain. | Resize if load tests show ENFILE/EAGAIN; keep map under stack limit. |
@@ -324,13 +324,13 @@ drop counters; make keyboard and touch transports; optionally expose
 *Done when:* both devices deliver events through one core and touch taps between
 reads are not lost.
 
-**I6 — POSIX tty ioctl semantics.**
-*Target:* `TIOCINQ` returns raw queued bytes rather than bytes up to the next newline
-in canonical mode, canonical `select()` is unimplemented, `VSUSP` is missing, and
-^D prints a spurious BEL.
-*Do:* correct canonical-mode byte counting, wire `SELECT_IN` readiness, implement
-`VSUSP` if job control is enabled, and fix the `VEOF` echo condition.
-*Done when:* `select()` and `read()` agree about pending input and ^D is quiet.
+**I6 (partial) — POSIX tty ioctl semantics.**
+*Done already (`17ff63c`):* ^D no longer beeps; canonical `TIOCINQ` counts bytes up
+to the next newline (0 if no complete line is pending).
+*Still to do:* wire `SELECT_IN` canonical readiness (the FIXME at `tty.c:371` —
+`select()` currently can't tell a canonical reader that a full line is waiting),
+and implement `VSUSP` if job control is enabled.
+*Done when:* `select()` and `read()` agree about pending input.
 
 **M4 — user-stack high-water marks.**
 *Target:* the 7 KB user stack can underflow below `PROGBASE` into kernel tables, and
@@ -340,28 +340,14 @@ the actual headroom under the compiler chain was never measured.
 *Done when:* the report shows positive headroom and an overflow attempt warns before
 corrupting kernel tables.
 
-**M5 — swap sizing and OOM behavior.**
-*Target:* swap reserved 728 blocks for a 512-block partition; the second map's I/O
-was silently ignored, and out-of-memory called `panic()` and killed the whole system.
-*Do:* set `MAX_SWAPS 1`, check every swap read/write return, and on OOM kill only the
-offending process (with a log) instead of panicking.
-*Done when:* compiling under memory pressure never panics the whole machine and swap
-I/O failures are reported.
-
-**M6 — ELF loader validation.**
-*Target:* the loader doesn't check `p_filesz <= p_memsz`, doesn't bound/align
-relocations, and ignores `readi()` results — a malformed binary could execute stale
-memory.
-*Do:* validate every ELF field, lower-bound and align relocations, and check all read
-results.
-*Done when:* a truncated or hostile ELF is rejected cleanly with `errno` set.
-
-**M7 — initialize or remove `kmalloc()`.**
-*Target:* the kernel malloc pool is compiled in but `kmemaddblk()` is never called, so
-it always returns NULL; drivers that use it fail silently.
-*Do:* either register a real memory block with the pool or remove the dead code and
-its callers.
-*Done when:* no driver silently fails because of an uninitialized allocator.
+**M5 (partial) — swap sizing and OOM behavior.**
+*Done already (`fa1b3ef`):* `MAX_SWAPS 1` (one map fits the 512-block partition),
+swap read/write returns are checked and reported.
+*Still to do:* replace `panic("swapin: no free block")` with a controlled kill of
+just the offending process. This is the hard part: `swapin()` runs in the swapper
+task, where `doexit()` would act on the wrong process, so the process teardown must
+be restructured to target an arbitrary `ptptr`.
+*Done when:* compiling under memory pressure never panics the whole machine.
 
 **M8 — assertions and stack protector.**
 *Target:* there is no `BUG_ON`/`WARN_ON` framework and no `-fstack-protector`, despite
@@ -384,19 +370,6 @@ copies of a `used()` helper.
 *Do:* define each constant once, derive the others, break the include cycle, and
 keep a single `used()`.
 *Done when:* changing a constant in one place updates every consumer; clean build.
-
-**K5 — a minimal device model with `probe()`.**
-*Target:* there is no `probe()`/`remove()`; the stubbed `rawuart` driver registers as
-a real device even though the hardware is absent.
-*Do:* add `probe`/`remove` to `struct ttydriver`; have `rawuart_probe()` fail so it
-isn't registered.
-*Done when:* absent hardware probes out cleanly with no dead device node.
-
-**D5 — keep the correct barriers (no work expected).**
-*Target:* the SPSC ring barriers and the bounded flash lockout are already correct.
-*Do:* leave unchanged; optionally give the barriers named wrappers for readability
-and publish core1 readiness with a release fence.
-*Done when:* no regression in the lockout/USB soak tests.
 
 **S1 follow-up — batch per-swap TRIM.**
 *Target:* each swap-in issues 364 separate TRIMs, each triggering flash garbage
