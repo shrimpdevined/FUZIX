@@ -17,6 +17,7 @@
 #include <string.h>
 #include <printf.h>
 #include "devfat.h"
+#include "klog.h"
 
 extern void fat_diskio_bind(uint16_t dev);
 
@@ -698,14 +699,17 @@ int devfat_mkfs(uint16_t dev) {
         return -1;
     }
 
-    /* A 512-byte work buffer makes FatFs write the FAT table one sector at
-     * a time (~60k SD writes on a 116 GB card = minutes of unresponsive
-     * console).  16 KB cuts that ~32x. */
-    static uint8_t mkfs_work[4 * 1024];
+    /* MASTER_PLAN L1 option 2: this 4 KB scratch is now a union with the
+     * klog ring (klog.h), so it costs zero net RAM.  Suspend logging while
+     * mkfs owns the buffer, then resume with a cleared ring -- the bytes
+     * collected before mkfs are flushed to flash first. */
+    klog_flush();
+    klog_suspend();
     MKFS_PARM opt = { FM_ANY, 2, 0, 0, 0 };
     fat_diskio_bind(dev);
-    FRESULT res = f_mkfs("", &opt, mkfs_work, sizeof(mkfs_work));
+    FRESULT res = f_mkfs("", &opt, klog_mkfs.mkfs_work, KLOG_RING_SIZE);
     fat_diskio_bind(0);
+    klog_resume();
 
     if (res != FR_OK) {
         udata.u_error = EIO;

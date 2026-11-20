@@ -1221,6 +1221,12 @@ extern uint_fast8_t plt_canswapon(uint16_t devno);
 
 extern int plt_dev_ioctl(uarg_t request, char *data);
 
+/* Kernel log ring (/dev/sys minor 128, enabled by CONFIG_KLOG). */
+#ifdef CONFIG_KLOG
+extern int klog_read(uarg_t dest, unsigned int count);
+extern int klog_ioctl(unsigned int request, char *data);
+#endif
+
 extern void plt_udma_kill(ptptr p);
 extern void plt_udma_sync(ptptr p);
 

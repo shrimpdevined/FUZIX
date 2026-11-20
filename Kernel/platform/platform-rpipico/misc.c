@@ -7,6 +7,7 @@
 #include "globals.h"
 #include "core1.h"
 #include "devlcd.h"
+#include "klog.h"
 #include <vt.h>
 #include <pico/multicore.h>
 #include <pico/bootrom.h>
@@ -113,6 +114,7 @@ void plt_monitor(void)
      * live kprintf dump is frequently lost when USB re-enumerates; the
      * flash record is read by userspace into /var/log/crash.log at boot. */
     crashlog_flush();
+    klog_flush();       /* persist the kernel log ring before reset (L1) */
 
     /* A panic must not permanently brick the device (that was the old
      * infinite sleep, and it also killed core1 = the only USB console, so

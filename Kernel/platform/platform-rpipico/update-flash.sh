@@ -105,6 +105,7 @@ mknod proc  20666 1027
 mknod mem   20660 1028
 mknod rtc   20600 1029
 mknod sys   20644 1030
+mknod klog  20644 1152
 mknod i2c   20600 1031
 mknod gpio  20600 1032
 mknod fb0   20666 2048
@@ -180,6 +181,7 @@ bget ../../../Applications/util/head
 bget ../../../Applications/util/id
 bget ../../../Applications/util/kill
 bget ../../../Applications/util/killall
+bget ../../../Applications/util/klogd
 bget ../../../Applications/util/logname
 bget ../../../Applications/util/ls
 bget ../../../Applications/util/mkdir
@@ -263,6 +265,7 @@ chmod 0755 head
 chmod 0755 id
 chmod 0755 kill
 chmod 0755 killall
+chmod 0755 klogd
 chmod 0755 logname
 chmod 0755 ls
 chmod 0755 mkdir

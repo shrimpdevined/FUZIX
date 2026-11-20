@@ -16,6 +16,7 @@ int main(int argc, char **argv)
         puts("\tcrashlog [file]\tDump last fatal-exception record (to file).");
         puts("\tvtshadow\tDump the LCD shadow buffer (serial vs LCD stream).");
         puts("\tbootlog [file]\tDump captured early boot console output.");
+        puts("\tklog [dump|flush|replay|level]\tKernel log ring controls.");
         return 0;
     }
     int fd = open("/dev/sys", O_RDWR, 0);
@@ -94,6 +95,47 @@ int main(int argc, char **argv)
         fputs("\n--- end ---\n", out);
         if (out != stdout)
             fclose(out);
+        close(fd);
+        return 0;
+    }
+
+    if (strcmp(argv[1], "klog") == 0)
+    {
+        unsigned char buf[512];
+        uint16_t n;
+        int kfd = open("/dev/klog", O_RDONLY, 0);
+        if (kfd == -1)
+        {
+            perror("Failed to open /dev/klog");
+            close(fd);
+            return 1;
+        }
+        const char *op = (argc >= 3) ? argv[2] : "dump";
+        if (strcmp(op, "level") == 0)
+        {
+            ioctl(kfd, 0x4B02, &n);
+            printf("klog level: %u\n", (unsigned)n);
+        }
+        else if (strcmp(op, "flush") == 0)
+        {
+            ioctl(kfd, 0x4B04, NULL);
+            puts("klog flushed to flash");
+        }
+        else if (strcmp(op, "replay") == 0)
+        {
+            ioctl(kfd, 0x4B05, NULL);
+            puts("klog replayed from flash");
+        }
+        else
+        {
+            for (;;)
+            {
+                int r = read(kfd, buf, sizeof(buf));
+                if (r <= 0) break;
+                write(1, buf, r);
+            }
+        }
+        close(kfd);
         close(fd);
         return 0;
     }

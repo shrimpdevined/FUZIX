@@ -88,6 +88,9 @@
 
 #define CONFIG_32BIT
 #define CONFIG_USERMEM_DIRECT
+
+/* MASTER_PLAN L1: kernel log ring (4 KB shared with mkfs_work). */
+#define CONFIG_KLOG
 /* Virtual terminal (LCD) is enabled below with CONFIG_VT. */
 
 /* Built in NAND flash. Warning, it's unstable. */

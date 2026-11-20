@@ -75,6 +75,10 @@ int sys_read(uint_fast8_t minor, uint_fast8_t rawflag, uint_fast8_t flag)
 	case 66:
 		return inputdev_read(flag);
 #endif
+#ifdef CONFIG_KLOG
+	case 128:   /* /dev/klog - kernel log ring (rpipico, MASTER_PLAN L1) */
+		return klog_read((uarg_t)udata.u_base, udata.u_count);
+#endif
 	default:
 		udata.u_error = ENXIO;
 		return -1;
@@ -132,6 +136,10 @@ int sys_ioctl(uint_fast8_t minor, uarg_t request, char *data)
 #ifdef CONFIG_DEV_PLATFORM
 	if (minor == 6)
 		return plt_dev_ioctl(request, data);
+#endif
+#ifdef CONFIG_KLOG
+	if (minor == 128)   /* /dev/klog */
+		return klog_ioctl(request, data);
 #endif
 #ifdef CONFIG_DEV_I2C
 	if (minor == 7)

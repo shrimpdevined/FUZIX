@@ -51,6 +51,7 @@ add_executable(fuzix
 	core1.c
 	crashlog.c
 	bootlog.c
+	klog.c
 	devgpio.c
 	usbdescriptors.c
 	devlcd.c

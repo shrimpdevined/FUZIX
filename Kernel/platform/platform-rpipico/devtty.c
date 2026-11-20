@@ -10,6 +10,7 @@
 #include "core1.h"
 #include "devtty.h"
 #include "devlcd.h"
+#include "klog.h"
 
 uint8_t ttybuf[TTYSIZ * NUM_DEV_TTY];
 
@@ -115,6 +116,9 @@ void kputchar(uint_fast8_t c)
      * nested di() is safe (PRIMASK saved/restored), and if IRQs were already
      * off (boot/panic) irqrestore keeps them off. */
     irqflags_t irq = di();
+    /* Feed the kernel log ring (MASTER_PLAN L1).  Only di()+array here,
+     * safe from IRQ/panic context; no stdout/flash in the hook. */
+    klog_putc(c);
     if (c == '\n')
         tty_putc(1, '\r');
     tty_putc(1, c);
