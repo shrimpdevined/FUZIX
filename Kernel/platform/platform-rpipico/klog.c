@@ -16,6 +16,7 @@
 #include <kernel.h>
 #include "picosdk.h"
 #include <hardware/flash.h>
+#include <hardware/watchdog.h>
 #include "klog.h"
 
 /* The shared 4 KB.  devfat.c refers to klog_mkfs.mkfs_work, we use
@@ -178,7 +179,9 @@ static void klog_program_sector(uint32_t seq, uint32_t len)
 			                    klog_mkfs.klog_ring, 256 - first);
 	}
 	irqrestore(irq);
-	multicore_lockout_end_blocking();
+	/* M10 hardening: bounded release, matching rawflash.c:52-60. */
+	if (!multicore_lockout_end_timeout_us(200000))
+		watchdog_reboot(0, 0, 0);
 }
 
 void klog_flush(void)

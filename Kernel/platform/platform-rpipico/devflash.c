@@ -96,7 +96,12 @@ void flash_dev_init(void)
 	kprintf("NAND flash, ");
 	dhara_map_init(&dhara, &nand, journal_buf, 10);
 	dhara_error_t err = DHARA_E_NONE;
-	dhara_map_resume(&dhara, &err);
+	/* M10 hardening: a failed resume leaves dhara.count == 0, which used to
+	 * register a zero-capacity block device and silently fail fmount() with
+	 * "no root" on every boot.  Report it so the failure is diagnosable from
+	 * the serial log / bootlog instead of looking like filesystem corruption. */
+	if (dhara_map_resume(&dhara, &err) < 0)
+		kprintf("FTL RESUME FAILED (err=%d) ", (int)err);
 	uint32_t lba = dhara_map_capacity(&dhara);
 	kprintf("%dkB physical %dkB logical at 0x%p: ",
         nand.num_blocks * 4, lba / 2, XIP_NOCACHE_NOALLOC_BASE + FLASH_OFFSET);

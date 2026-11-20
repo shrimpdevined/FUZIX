@@ -10,6 +10,7 @@
  */
 #include <stdint.h>
 #include <pico/multicore.h>
+#include <hardware/watchdog.h>
 #include <stddef.h>
 #include <string.h>
 #include <kernel.h>
@@ -90,7 +91,11 @@ void crashlog_flush(void)
 	flash_range_erase(CRASH_LOG_FLASH_OFF, CRASH_LOG_SECTOR);
 	flash_range_program(CRASH_LOG_FLASH_OFF, (const uint8_t *)r, CRASH_LOG_REC_SIZE);
 	irqrestore(f);
-	multicore_lockout_end_blocking();
+	/* M10 hardening: bounded release, matching rawflash.c:52-60.  An
+	 * unbounded lockout-end here can hang with IRQs off during a panic,
+	 * turning a deliberate 1.5 s reset into an unrecorded watchdog reset. */
+	if (!multicore_lockout_end_timeout_us(200000))
+		watchdog_reboot(0, 0, 0);
 
 	/* Don't flush the same record twice if panic() is re-entered. */
 	((struct pico_crashlog *)&crash_ram_rec)->magic = 0;
