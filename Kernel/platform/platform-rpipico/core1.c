@@ -51,12 +51,23 @@ struct console_t
 {
 	struct console_buf_t rbuf;
 	struct console_buf_t wbuf;
-	volatile uint8_t flush_req;   /* core0 -> core1: drop the CDC FIFO */
-	volatile uint8_t flush_ack;   /* core1 -> core0: FIFO dropped */
+	/* MASTER_PLAN D4: sequence-number flush handshake.  Each field has a
+	 * single writer: core0 only writes flush_seq, core1 only writes
+	 * flush_done_seq.  With the old req/ack flags both cores wrote both
+	 * bytes, so a fast second flush could be cancelled by core1's cleanup
+	 * of the first one (lost request).  Here a request is a monotonically
+	 * increasing number, and completion is "done_seq has caught up". */
+	volatile uint32_t flush_seq;       /* core0 -> core1: latest request */
+	volatile uint32_t flush_done_seq;  /* core1 -> core0: last serviced request */
 	volatile uint8_t sleeping;
 };
 
 static struct console_t usb_console_table[NUM_DEV_TTY_USB];
+
+/* Upper bound on how long core0 waits for core1 to service a flush.  core1
+ * normally does it within one USB loop iteration; the bound only matters if
+ * it is parked in a flash lockout.  Kept well below the watchdog interval. */
+#define FLUSH_WAIT_TIMEOUT_US 20000UL
 /* Set by core1 once its drain loop is running. */
 static volatile uint8_t core1_ready;
 volatile int usb_host_connected;
@@ -116,8 +127,8 @@ static struct console_t *console_get(uint8_t usb_num)
  * not yet reached ttyinq.  We must ask core1 to drop the TinyUSB FIFO as
  * well, otherwise bytes already drained into the USB peripheral reappear at
  * the next prompt after tcflush() (the "Require password" / stray-'d' race).
- * The request/ack handshake closes the window where core1 is midway through
- * moving bytes into rbuf. */
+ * The sequence-number handshake closes the window where core1 is midway
+ * through moving bytes into rbuf. */
 void tty_flushinput(uint_fast8_t minor)
 {
 	/* Map the tty minor to its USB device number; the console minor is
@@ -130,28 +141,34 @@ void usbconsole_flushinput(uint8_t usb_num)
 {
 	struct console_t *c = console_get(usb_num);
 	uint8_t b;
-	uint32_t spin;
+	uint32_t seq;
+	uint32_t deadline;
 
 	if (c == NULL)
 		return;
 
-	/* Ask core1 to drop the CDC hardware FIFO.  Clear the ack first so a
-	 * stale ack from a previous flush cannot fool us. */
-	c->flush_ack = 0;
+	/* Publish a new request.  core0 is the only writer of flush_seq, so a
+	 * plain increment cannot race; the release fence makes it visible to
+	 * core1.  Using a sequence (not a flag) means a rapid second flush can
+	 * never be cleared by core1's bookkeeping for the first one. */
+	seq = c->flush_seq + 1;
+	c->flush_seq = seq;
 	__mem_fence_release();
-	c->flush_req = 1;
 
 	/* Drain whatever core0 has already staged. */
 	while (console_buf_read(&c->rbuf, &b))
 		;
 
-	/* Wait (bounded) for core1 to drop the FIFO.  If core1 is parked for
-	 * a flash lockout it will honour the request as soon as it resumes;
-	 * there is no point spinning for long here. */
-	for (spin = 0; spin < 200000 && !c->flush_ack; spin++)
-		tight_loop_contents();
+	/* Wait with a bounded deadline instead of a fixed-count busy spin.
+	 * switchout() yields to other processes whenever there is work to do;
+	 * when we are the only runnable task it returns immediately, so the
+	 * loop is still short because core1 services the request promptly. */
+	deadline = time_us_32() + FLUSH_WAIT_TIMEOUT_US;
+	while ((int32_t)(seq - c->flush_done_seq) > 0 &&
+	       (int32_t)(time_us_32() - deadline) < 0)
+		switchout();
 
-	if (c->flush_ack) {
+	if ((int32_t)(seq - c->flush_done_seq) <= 0) {
 		__mem_fence_acquire();
 		/* Anything core1 staged before it saw the request is stale. */
 		while (console_buf_read(&c->rbuf, &b))
@@ -270,13 +287,17 @@ static void core1_main(void)
 
 			/* Honour a tcflush() request before touching the FIFO, and
 			 * do not read in the same iteration: any byte left in the
-			 * FIFO at this point is stale by definition. */
-			if (ct->flush_req)
+			 * FIFO at this point is stale by definition.  Snapshot the
+			 * request and publish it as done; a newer request published
+			 * by core0 in between is left for the next iteration, so no
+			 * flush is ever lost (MASTER_PLAN D4). */
+			if (ct->flush_done_seq != ct->flush_seq)
 			{
+				uint32_t seq = ct->flush_seq;
+				__mem_fence_acquire();
 				tud_cdc_n_read_flush(i);
 				__mem_fence_release();
-				ct->flush_ack = 1;
-				ct->flush_req = 0;
+				ct->flush_done_seq = seq;
 				continue;
 			}
 
