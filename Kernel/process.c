@@ -938,8 +938,17 @@ static int exit_sync_due(void)
 	irqflags_t irq = di();
 	clock_t now = ticks.full;
 	int due = 0;
+	struct blkbuf *bp;
 
-	if ((uint32_t)(now - last_exit_sync) >= (uint32_t)EXIT_SYNC_TICKS) {
+	/* Only sync if something is actually dirty.  On the Pico a full
+	 * sync() walks every buffer and flushes the FTL/SD, costing seconds
+	 * even when nothing changed -- a visible stall on every shell exit
+	 * (MASTER_PLAN B3). */
+	for (bp = bufpool; bp < bufpool + NBUFS; bp++)
+		if (bp->bf_dirty)
+			break;
+	if (bp < bufpool + NBUFS &&
+	    (uint32_t)(now - last_exit_sync) >= (uint32_t)EXIT_SYNC_TICKS) {
 		last_exit_sync = now;
 		due = 1;
 	}
