@@ -139,7 +139,7 @@ Severity: **P0** ship-blocker (crash / data loss / forensics black hole), **P1**
 
 | Status | ID | Sev | Finding / what it targeted | Resolution |
 |--------|----|-----|----------------------------|------------|
-| [~] | L1 | P0 | No persistent log; crashes left zero evidence. | Stages 0-1 done: S5 crash record + boot console capture → plain files. Full `klog.c` ring + `klogd` rotation/SD archive still open. |
+| [~] | L1 | P0 | No persistent log; crashes left zero evidence. | **Stages 0-2 DONE (`50272af`):** S5 crash record → `/var/log/crash.log`; boot capture → `/var/log/boot.log`; **4 KB klog ring unioned with `mkfs_work` (zero net RAM) → `/dev/klog` + `klogd` → `/var/log/klog` with rotation + SD archive + flash replay**. Device-stability-tested: clean boot, klogd alive, full banner in log, 3 compiles + runbin RC=42, 8× burst clean, `vt_dropped=0`. Open: L1 stages 3-5 hardening (wear leveling is simple 4-sector rotation; crash-path flush needs a real induced-fault test). |
 | [x] | L2 | P2 | Drop/liveness telemetry not observable; LCD contents not readable. | `picoctl diag`, `PICOIOC_VTSHADOW`, `lcd_compare.py` (`0b5d749`, `8e9354e`). Device-verified. |
 
 ### M — Memory / process isolation
@@ -206,16 +206,18 @@ in plain language, what to change, and how to know it worked. Ordered by priorit
 
 ### P0 — should be done before calling the system stable
 
-**L1 (full) — continuous kernel log with rotation.**
-*Target:* today we only have two static files (`boot.log` from startup text,
-`crash.log` from the last fatal fault). There is no running log of kernel events,
-so intermittent warnings that don't crash the machine are lost.
-*Do:* add a `klog.c` ring that `kputchar()` feeds (a single choke point for all
-kernel messages), expose it as a `/dev/klog` device with peek/drain/flush ioctls,
-and write a `klogd` daemon that appends to `/var/log/klog`, rotates it, and archives
-old copies to `/mnt/sd/log/`. Requires shrinking `USERMEM` by one block to make RAM.
-*Done when:* a forced panic plus a watchdog reboot leaves a timestamped log on disk
-and an archived copy on SD, with the memory map still under `0x20040000`.
+**L1 (stages 3-5 hardening) — remaining klog work.**
+*Done (`50272af`):* the full pipeline exists — `klog.c` 4 KB ring fed by
+`kputchar()`, `/dev/klog` (minor 128) with DRAIN/LEVEL/CLEAR/FLUSH/REPLAY,
+`klogd` writing `/var/log/klog` with rotation + SD archive + flash replay, and
+`picoctl klog` for diagnostics. The ring is unioned with `mkfs_work`, so it
+costs zero net RAM (map stayed under `0x20040000`, USERMEM unchanged at 202 KB).
+Device-stability-tested (no crash, klogd alive, log populated, compiles + burst clean).
+*Still to do:* (a) verify the crash-path `klog_flush()` actually persists a
+record when a real fault fires (ioctls respond but no on-demand `kprintf`
+source exists from userland to force a data round-trip); (b) replace the simple
+4-sector rotation with proper wear leveling; (c) cover the `klogd -p`/`dmesg`
+path with data. These are the only remaining L1 items.
 
 ### P1 — high-value robustness
 
