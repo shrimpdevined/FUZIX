@@ -54,6 +54,10 @@ static struct utmp ut;
 struct initpid {
 	pid_t pid;
 	uint8_t id[2];
+	/* sysvinit-style respawn limit (MASTER_PLAN B2): count deaths and
+	 * stop respawning if a task dies too often in a short window. */
+	uint8_t respawns;
+	uint32_t first_death;
 };
 
 /* Base of our working space */
@@ -208,9 +212,25 @@ static int clear_utmp(struct initpid *ip, uint16_t count, pid_t pid)
 			endutent();
 			/* Mark as done */
 			initpid[i].pid = 0;
-			/* Respawn the task if appropriate */
-			if ((p[3] & (1 << runlevel)) && p[4] == INIT_RESPAWN)
-				initpid[i].pid = spawn_process(p, 0);
+			/* Respawn the task if appropriate, with a sysvinit-style
+			 * limit: more than 5 restarts inside 60 s means the task
+			 * is broken -- stop respawning instead of fork-looping. */
+			if ((p[3] & (1 << runlevel)) && p[4] == INIT_RESPAWN) {
+				time_t now;
+				time(&now);
+				if (initpid[i].first_death == 0 ||
+				    (uint32_t)(now - (time_t)initpid[i].first_death) > 60) {
+					initpid[i].first_death = (uint32_t)now;
+					initpid[i].respawns = 0;
+				}
+				if (++initpid[i].respawns <= 5)
+					initpid[i].pid = spawn_process(p, 0);
+				else {
+					putstr("init: respawning too fast, stopped: ");
+					write(1, &p[1], 2);
+					crlf();
+				}
+			}
 			return 0;
 		}
 		ip++;
@@ -399,6 +419,8 @@ static void parse_inittab(void)
 		ip->id[0] = p[1];
 		ip->id[1] = p[2];
 		ip->pid = 0;
+		ip->respawns = 0;
+		ip->first_death = 0;
 		p += *p;
 		ip++;
 	}
@@ -603,11 +625,20 @@ int main(int argc, char *argv[])
 	close(1);
 	close(2);
 
-	/* loop until we can open the first terminal */
-
-	do {
-		fdtty1 = open("/dev/tty1", O_RDWR|O_NOCTTY);
-	} while (fdtty1 < 0);
+	/* Wait for the first terminal, but do not spin forever if the tty
+	 * driver never becomes available (MASTER_PLAN B2): a bounded retry
+	 * with a diagnostic beats a silent infinite open() loop. */
+	{
+		int tries = 0;
+		do {
+			fdtty1 = open("/dev/tty1", O_RDWR|O_NOCTTY);
+			if (fdtty1 < 0) {
+				if (++tries == 10)
+					putstr("init: waiting for /dev/tty1\n");
+				sleep(1);
+			}
+		} while (fdtty1 < 0);
+	}
 
 	/* make stdin, stdout and stderr point to /dev/tty1 */
 
