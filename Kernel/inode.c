@@ -406,13 +406,33 @@ static int sync_flush_devices(void)
 	return ret;
 }
 
+/*
+ *	sync() -- make the on-media filesystem consistent (MASTER_PLAN F3).
+ *
+ *	Write ordering is deliberately:
+ *
+ *	  1. dirty inodes
+ *	  2. barrier: write every dirty buffer, then flush each device once
+ *	  3. superblocks (mark going-clean volumes clean on the media)
+ *	  4. barrier: write buffers again (drains the superblock write), then
+ *	     flush each device once so the clean mark is durable
+ *	  5. commit the in-memory GO_CLEAN -> CLEAN transition
+ *
+ *	The old code flipped s_fmod to CLEAN before writing the superblock and
+ *	only then wrote the buffer pool, so a crash in that window could leave
+ *	a "clean" superblock over rolled-back data.  Nothing is declared clean
+ *	now until both barriers -- and the superblock write itself -- succeed.
+ *	See sync_flush_devices() above for why the device flush is once-only.
+ */
 void sync(void)
 {
 	regptr inoptr ino;
 	regptr struct mount *m;
 	bufptr buf;
+	int ok;
+	uint_fast8_t smod;
 
-	/* Write out modified inodes */
+	/* 1. Write out modified inodes (bwritei() writes through immediately). */
 
 	for (ino = i_tab; ino < i_tab + ITABSIZE; ++ino)
 		/* Only write genuinely live inodes: a freed slot has c_refs==0
@@ -422,27 +442,50 @@ void sync(void)
 			wr_inode(ino);
 			ino->c_flags &= ~CDIRTY;
 		}
-	for (m = fs_tab; m < fs_tab + NMOUNTS; m++) {
-		/* FAT volumes have no Fuzix superblock; writing one here
-		 * corrupts their boot/FSInfo sector. */
-		if (m->m_flags & 0x80)
-			continue;
-		if (m->m_dev != NO_DEVICE &&
-			m->m_fs.s_fmod != FMOD_CLEAN) {
-			/* GO_CLEAN means write a CLEAN to the media */
-			if (m->m_fs.s_fmod == FMOD_GO_CLEAN)
+
+	/* 2. First barrier: push inodes + all buffered metadata/data to the
+	 *    device before any superblock may claim the volume is clean. */
+	bufsync();
+	ok = sync_flush_devices();
+
+	/* 3. Superblocks.  Only if the first barrier succeeded.  For a volume
+	 *    going clean we write the on-disk clean mark (FMOD_CLEAN) but keep
+	 *    the in-memory value at FMOD_GO_CLEAN until step 5. */
+	if (ok == 0) {
+		for (m = fs_tab; m < fs_tab + NMOUNTS; m++) {
+			/* FAT volumes have no Fuzix superblock; writing one here
+			 * corrupts their boot/FSInfo sector. */
+			if (m->m_flags & 0x80)
+				continue;
+			if (m->m_dev == NO_DEVICE ||
+			    m->m_fs.s_fmod == FMOD_CLEAN)
+				continue;
+			smod = m->m_fs.s_fmod;
+			if (smod == FMOD_GO_CLEAN)
 				m->m_fs.s_fmod = FMOD_CLEAN;
 			buf = bread(m->m_dev, 1, 1);
 			if (buf) {
-				blkfromk(&m->m_fs, buf, 0, sizeof(struct filesys));
-				bfree(buf, 2);
-			}
+				if (bfree(buf, 2))
+					ok = -1;   /* writeback failed */
+			} else
+				ok = -1;
+			m->m_fs.s_fmod = smod; /* keep GO_CLEAN until step 5 */
 		}
 	}
-	bufsync();		/* Write back all dirty buffers */
-	/* MASTER_PLAN F1: one flush per mounted device, after all buffers have
-	 * been written.  Propagate failures to the caller's u_error. */
-	sync_flush_devices();
+
+	/* 4. Final barrier.  The superblock write above is buffered through
+	 *    bdwrite(); this buffer-pool drain plus device flush makes the
+	 *    clean mark durable before we admit it in memory. */
+	bufsync();
+	if (sync_flush_devices())
+		ok = -1;
+
+	/* 5. Commit the clean state only after every barrier succeeded. */
+	if (ok == 0)
+		for (m = fs_tab; m < fs_tab + NMOUNTS; m++)
+			if (!(m->m_flags & 0x80) && m->m_dev != NO_DEVICE &&
+			    m->m_fs.s_fmod == FMOD_GO_CLEAN)
+				m->m_fs.s_fmod = FMOD_CLEAN;
 }
 
 #ifdef CONFIG_BLOCK_SLEEP
