@@ -95,6 +95,7 @@ add_executable(fuzix
 	../../syscall_proc.c
 	../../timer.c
 	../../tty.c
+	../../input.c
     ../../vt.c
 	../../usermem.c
 	../../version.c

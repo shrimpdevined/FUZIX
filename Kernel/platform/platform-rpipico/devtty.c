@@ -119,15 +119,16 @@ void kputchar(uint_fast8_t c)
     /* Feed the kernel log ring (MASTER_PLAN L1).  Only di()+array here,
      * safe from IRQ/panic context; no stdout/flash in the hook. */
     klog_putc(c);
+    /* C4: derive the console minor from TTYDEV instead of a magic 1. */
     if (c == '\n')
-        tty_putc(1, '\r');
-    tty_putc(1, c);
+        tty_putc(CONSOLE_MINOR, '\r');
+    tty_putc(CONSOLE_MINOR, c);
     irqrestore(irq);
 }
 
 void tty_putc(uint_fast8_t minor, uint_fast8_t c)
 {
-    if (minor == 1) {
+    if (minor == CONSOLE_MINOR) {
         /* USB first: fast, ordered enqueue.  LCD second: slow, visual only.
          *
          * No LCD/VT work may sit on the serial path: one character costs
@@ -173,7 +174,7 @@ void tty_putc(uint_fast8_t minor, uint_fast8_t c)
 
 ttyready_t tty_writeready(uint_fast8_t minor)
 {
-    if (minor == 1) {
+    if (minor == CONSOLE_MINOR) {
         /* USB console TX is best-effort and NEVER blocks the writer.  When
          * the host is attached but not draining CDC (terminal not reading),
          * the 512-byte TX ring stays full and usbconsole_ready() would

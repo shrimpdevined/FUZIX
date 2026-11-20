@@ -27,6 +27,10 @@ struct ttymap
 #define TTYDRV_UART 0
 #define TTYDRV_USB 1
 
+/* C4: the system console minor, derived from TTYDEV (major 2 = tty).
+ * Kernel messages and the VT/USB fan-out use this instead of a magic 1. */
+#define CONSOLE_MINOR ((TTYDEV) & 0xFF)
+
 extern int ttymap_count;
 extern struct ttymap ttymap[NUM_DEV_TTY+1];
 extern void tty_interrupt(void);
