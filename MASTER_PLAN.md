@@ -69,8 +69,8 @@ Severity: **P0** = ship-blocker (crash / data loss / forensics black hole), **P1
 | ID | Sev | Finding (evidence) | Fix | Test |
 |----|-----|--------------------|-----|------|
 | [x] D1 | P0 | VT/LCD drained **only** from `plt_idle()` (`devtty.c:209-219`, `tricks.S:10-15`, `process.c:149-154`) = only when `nready==0`. Compiler load → LCD **freezes**, `vtd_buf` fills and drops (`vt.c:96,245-249`). No tick fallback; `u_ininterrupt` guard blocks naively adding one. `vt_task` not self-rearming (`:263-278`). | `deferred_pending` bitmask (VT/LCD/FLUSH) set on enqueue; `deferred_run(budget)` with self-requeue; drain from idle **and** a deferred worker task (model on `swapper()`, `process.c:1068-1083`) that participates in scheduling. SPI rendering stays in thread context. **DONE** `6ed3dec`: `vt_pending()`/`vt_drain()`/`vt_pump()`; `tty_putc()` pumps 256 + `lcd_task()` when backlog ≥64, gated on `!u_ininterrupt`. Root cause confirmed (`vt_dropped` 0→295 while `usb_tx_dropped` unchanged). **DEVICE VERIFIED:** 12× separate `ls /mnt/sd/fuzix/bin`, 12× compound `ls /bin`, 8× `banner` — all completed with `vt_dropped=0`, `usb_tx_dropped=85`, no stacked prompts. | Hold `fcc` compile for 60 s: LCD keeps updating, `vtd_dropped` stays 0. |
-| D2 | P1 | `vtoutput()` reentry enqueues only `*p` (one byte) regardless of `len` (`vt.c:289-294`); `vtbusy` cleared without `di()` (`:340`). Latent byte loss. | On this platform all output already goes through `vtdefer()` — remove `vtbusy` reentry path behind `CONFIG_VT_DEFERRED`, or enqueue whole `p[0..len-1]` in FIFO order and clear under `di()`. | Assert `vtbusy` never observed set; no byte loss in echo stress. |
-| D3 | P1 | `lcd_task()` checks bus busy once, but `lcd_redraw_row()` rechecks and can skip; `row_dirty[y]` cleared unconditionally (`devlcd.c:282-288`) → lost repaint. | `lcd_redraw_row()` returns bool; clear flag only on success; snapshot dirty bitmap under `di()`. | SD activity + LCD output: no permanently stale rows. |
+| [x] D2 | P1 | `vtoutput()` reentry enqueued only `*p` (one byte) regardless of `len`; `vtbusy` cleared without `di()`. | Reentry path now queues the whole run via `vtdefer_buf(p, len)`; `vtbusy` cleared under `di()`. Device: 8× `ls` burst with `vt_dropped=0`. |
+| [x] D3 | P1 | `lcd_task()` cleared `row_dirty[y]` unconditionally even when `lcd_redraw_row()` skipped (SD owns SPI). | `lcd_redraw_row()` returns bool; dirty flag kept on skip, cleared only after a real redraw. Device: burst repaints clean. |
 | D4 | P1 | Flush handshake `flush_req`/`flush_ack` written by both cores with a lost-request race + 200k-iteration busy spin (`core1.c:53-54,120-156,279-285`). | Sequence protocol: `flush_seq`/`flush_done_seq` published with fences; core0 waits via `psleep`/`wakeup` (completion analogue), not spin. | Rapid `tcflush()` under load: no lost flush, no wasted spin. |
 | D5 | P2 | SPSC `__dmb` barriers are **correct** on M0+ (`core1.c:85-105`); bounded `multicore_lockout_start_timeout_us` avoids classic cross-core deadlock (`rawflash.c:20-33`). | **Preserve unchanged.** Optionally wrap in named `smp_store_release`/`smp_load_acquire`; publish `core1_ready`/`heartbeat` with release fence. | No regression in existing lockout/USB tests. |
 
@@ -247,7 +247,8 @@ Each phase ends with its acceptance test. Only mark issues `[x]` when the test p
 - [x] C7: duplicate/stacked `RP2040 login:` prompts — fixed in `init.c` (`c1d2235`),
       device-verified on the rebuilt image (one prompt per line).
 - [ ] C8: late boot-banner tail emitted after `login:` (new — ordering/flush).
-- [ ] D2/D3: fix reentry + repaint bugs.
+- [x] D2/D3: reentry queues whole run under di(); dirty rows kept on skip.
+      Device: 8× `ls` burst with `vt_dropped=0`.
 - [ ] C5: gfx-mode resync.
 - **Acceptance:** byte-identical serial/LCD under bursts + compiler load; no same-line prompts
   (including `login:`); LCD keeps updating under load; boot output complete before prompt.
