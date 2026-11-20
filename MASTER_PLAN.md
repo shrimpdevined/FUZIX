@@ -205,8 +205,8 @@ Each phase ends with its acceptance test. Only mark issues `[x]` when the test p
       core1 heartbeat rose steadily — false-reboot fix validated.**
 - [x] S2: watchdog feed moved to top of tick. Commit `726140b`. Device-verified in soak.
 - [x] I1: CardKB I2C timeout 5000→2000 µs (bounds IRQ-off window). Commit `d2e6f68`.
-      Device: keyboard still works after this build (login via serial OK; physical
-      CardKB re-verify pending at next console session).
+      **DEVICE VERIFIED: physical CardKB keypress ('g') received on console after this
+      build — keyboard still functional.**
 - [x] F2: `fsck -a` implies auto-yes (no invisible boot hang). Commit `fcdbce7`.
       Cross-built armm0; deploys with next fs image.
 - [x] M2: full-range validation in ugetw/getl/uputw/uputl + MISALIGNED syntax fix.
