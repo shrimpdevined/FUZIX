@@ -57,16 +57,18 @@ Severity: **P0** = ship-blocker (crash / data loss / forensics black hole), **P1
 |----|-----|--------------------|-----|------|
 | C1 | P0 | One byte stream → two queues with **different capacities** (USB `wbuf` 512 @ `core1.c:38-40`; VT `vtd_buf` 4096 @ `vt.c:90-96`) and **independent silent tail-drops** (`core1.c:200-201`, `vt.c:245-249`). A dropped `\r`/`\n` terminator makes the next prompt append on the same line. **CONFIRMED ON DEVICE (Phase 0 test):** LCD showed `devops@RP2040:~$` twice on one line after `picoctl diag` output while serial showed one prompt per line; `vt_dropped=0` so bytes were not lost — divergence is in VT cursor/LF rendering (C3), not queue drops. | `console_fanout(c)`: under one `di()`, check **both** rings for space first; enqueue to both, or drop from both with a single shared `console_dropped` counter. Equalize ring sizes. Fix C3 (VT `charout` LF must reset column / CRLF centralized). | Burst >512 B with host stalled: serial and LCD byte streams byte-identical; no prompts stacked on one LCD line. |
 | C2 | P0 | `tty_writeready(1)` always `TTY_READY_NOW` (`devtty.c:139-150`, commit `484b51d`) → `tty_write()` never sleeps → suffix drops. This *introduced* C1's drop window. | Resolve with the deferred/liveness fix (D1) so lossless blocking is safe, then restore honest readiness; or formally accept symmetric best-effort (C1) and document it. | `getpass()` prints full `"Password: "` under host-not-draining; no partial prompts. |
-| C3 | P1 | CR/LF normalization split 3 ways: `kputchar` always inserts `\r` (`devtty.c:103-105`); `tty_write` only with `OPOST\|ONLCR` (`tty.c:150-156`); echo only with `OPOST\|ONLCR` (`tty.c:470-473`). Bare LF in VT moves down **without** resetting column (`vt.c:136-139`). | One `console_emit(c)` owns `\n→\r\n`; all three callers use it; `kputchar` becomes one atomic emit; `charout()` LF zeroes `cursorx`. | Mixed kernel + echo + userspace output lands on correct columns on both sinks. |
+| [x] C3 | P1 | CR/LF normalization split 3 ways: `kputchar` always inserts `\r` (`devtty.c:103-105`); `tty_write` only with `OPOST\|ONLCR` (`tty.c:150-156`); echo only with `OPOST\|ONLCR` (`tty.c:470-473`). Bare LF in VT moves down **without** resetting column (`vt.c:136-139`). | One `console_emit(c)` owns `\n→\r\n`; all three callers use it; `kputchar` becomes one atomic emit; `charout()` LF zeroes `cursorx`. **DONE** (VT LF→CR part) commit `92f59ac`; LCD prompt stacking gone. Remaining centralization folded into C1. | Mixed kernel + echo + userspace output lands on correct columns on both sinks. |
 | C4 | P1 | No `/dev/console` abstraction; console is magic minor `1`; `tty=` config ignored for kernel output. | Introduce small `struct console` (name, write, minor, setup/exit) registered once; derive minor from `TTYDEV & 0xFF`; replace literal `1`s. | `tty=` remap routes kernel messages correctly; no literal console minor in output paths. |
 | C5 | P2 | `/dev/fb0` gfx mode purges queued VT text (`devlcd.c:306-311`, `vt.c:254-259`) and clears shadow on exit; inverse attr stored inconsistently (`devlcd.c:146,155,184`); `cursor_on/off` are no-ops (`devlcd.c:233-237`). | On gfx entry purge **both** sinks + resync VT/shadow; store inverse bit in `vt_shadow`; document no-cursor or add a visible one. | Serial/LCD stay in sync across a framebuffer app run. |
-| C6 | P1 | `kputchar` emits `\r` and `\n` as two `tty_putc` calls (`devtty.c:104-105`); an IRQ echo can interleave between them. | Single atomic emit (C3). | No stray characters between CR and LF in stress logs. |
+| [x] C6 | P1 | `kputchar` emits `\r` and `\n` as two `tty_putc` calls (`devtty.c:104-105`); an IRQ echo can interleave between them. | Single atomic emit (C3). **DONE** commit `2318118`. | No stray characters between CR and LF in stress logs. ✅ |
+| C7 | P1 | **Duplicate login prompt on one line:** device showed `RP2040 login: RP2040 login: ` with no CR/LF between them (seen after pressing Enter at `login:` / after a host pause). Same family as C1/C2: either two getty/login writers emit prompts, or the second prompt's leading CRLF was lost in the fan-out/ring tail. Interactive login still works, but the line is malformed and LCD/serial must mirror. | Reproduce deterministically (Enter at `login:`, repeated empty input, getty respawn); capture both sink byte streams. Fix at the console terminator layer (`console_emit`) and/or ensure getty/login cannot re-prompt without an intervening CRLF. Gate on C1/C2. | At `login:`, press Enter N times: exactly one prompt per line, identical on serial and LCD; no stacked prompt after idle/reboot. |
+| C8 | P2 | **Late boot-output tail:** after `RP2040 login:` appears, the tail of the kernel boot banner (e.g. `chikhin, Adriano <ala`) is still emitted, so the login prompt is visually split and username attempts look wrong. This is late **output**, not input pollution (verified: Enter re-prompts, `devops` echoes, then `Password:`). | Ensure all `kprintf` boot output completes (flush/drain both sinks) before `init` starts getty; check the `start.c` banner path interacts correctly with the D1 deferred pump. | Boot output is contiguous and complete before the first `login:`; no banner bytes after the prompt. |
 
 ### D — Deferred work / concurrency / core1
 
 | ID | Sev | Finding (evidence) | Fix | Test |
 |----|-----|--------------------|-----|------|
-| D1 | P0 | VT/LCD drained **only** from `plt_idle()` (`devtty.c:209-219`, `tricks.S:10-15`, `process.c:149-154`) = only when `nready==0`. Compiler load → LCD **freezes**, `vtd_buf` fills and drops (`vt.c:96,245-249`). No tick fallback; `u_ininterrupt` guard blocks naively adding one. `vt_task` not self-rearming (`:263-278`). | `deferred_pending` bitmask (VT/LCD/FLUSH) set on enqueue; `deferred_run(budget)` with self-requeue; drain from idle **and** a deferred worker task (model on `swapper()`, `process.c:1068-1083`) that participates in scheduling. SPI rendering stays in thread context. | Hold `fcc` compile for 60 s: LCD keeps updating, `vtd_dropped` stays 0. |
+| [~] D1 | P0 | VT/LCD drained **only** from `plt_idle()` (`devtty.c:209-219`, `tricks.S:10-15`, `process.c:149-154`) = only when `nready==0`. Compiler load → LCD **freezes**, `vtd_buf` fills and drops (`vt.c:96,245-249`). No tick fallback; `u_ininterrupt` guard blocks naively adding one. `vt_task` not self-rearming (`:263-278`). | `deferred_pending` bitmask (VT/LCD/FLUSH) set on enqueue; `deferred_run(budget)` with self-requeue; drain from idle **and** a deferred worker task (model on `swapper()`, `process.c:1068-1083`) that participates in scheduling. SPI rendering stays in thread context. **COMMITTED** `6ed3dec`: `vt_pending()`/`vt_drain()`/`vt_pump()`; `tty_putc()` pumps 256 + `lcd_task()` when backlog ≥64, gated on `!u_ininterrupt`. Root cause confirmed (`vt_dropped` 0→295 under `ls` burst while `usb_tx_dropped` unchanged). Flashed; **burst re-verification pending**. | Hold `fcc` compile for 60 s: LCD keeps updating, `vtd_dropped` stays 0. |
 | D2 | P1 | `vtoutput()` reentry enqueues only `*p` (one byte) regardless of `len` (`vt.c:289-294`); `vtbusy` cleared without `di()` (`:340`). Latent byte loss. | On this platform all output already goes through `vtdefer()` — remove `vtbusy` reentry path behind `CONFIG_VT_DEFERRED`, or enqueue whole `p[0..len-1]` in FIFO order and clear under `di()`. | Assert `vtbusy` never observed set; no byte loss in echo stress. |
 | D3 | P1 | `lcd_task()` checks bus busy once, but `lcd_redraw_row()` rechecks and can skip; `row_dirty[y]` cleared unconditionally (`devlcd.c:282-288`) → lost repaint. | `lcd_redraw_row()` returns bool; clear flag only on success; snapshot dirty bitmap under `di()`. | SD activity + LCD output: no permanently stale rows. |
 | D4 | P1 | Flush handshake `flush_req`/`flush_ack` written by both cores with a lost-request race + 200k-iteration busy spin (`core1.c:53-54,120-156,279-285`). | Sequence protocol: `flush_seq`/`flush_done_seq` published with fences; core0 waits via `psleep`/`wakeup` (completion analogue), not spin. | Rapid `tcflush()` under load: no lost flush, no wasted spin. |
@@ -104,6 +106,7 @@ Severity: **P0** = ship-blocker (crash / data loss / forensics black hole), **P1
 | F3 | P1 | No write ordering in `sync()`: inodes → superblocks (clean) → bufsync, no barrier (`inode.c:387-413`). Dhara journal (FTL rollback) and Fuzix `s_fmod` dirty bit are uncoordinated. | Order: inodes → flush → superblocks clean → flush → bufsync+flush. Only flip `s_fmod` clean after final flush succeeds. | Crash mid-sync: no clean-looking fs with rolled-back data. |
 | F4 | P2 | FAT special-cased by magic `m_flags & 0x80` spread across `inode.c:396, filesys.c:981, syscall_other.c:483,589, devfat.c:53,71`; `blkdev_rw()` returns -1 without `u_error` (`blkdev.c:98-125`); one global `blk_op`. | Add `m_type`/ops vector; typed errors from block layer; surface `dhara_error_t`. | FAT and native fs dispatch uniformly; SD/Dhara errors diagnosable. |
 | F5 | P1 | Shared SPI0 (SD vs LCD) is a cooperative flag (`sd_drive`, `devlcd.c:44-46`, `devsd.c:48-52`); no explicit owner; `devfb_write` returns EBUSY; SD retry up to 8×3 s (`devsd.c:54-64,115-134`) can exceed 5 s watchdog. | Explicit `spi0_owner` claim under `di()`; LCD worker re-queues on contention; cap total SD retry < watchdog. | Heavy SD + LCD: no `sd: timeout` spiral, no watchdog reset. |
+| [~] F6 | P2 | **~1 s "Checking root file system" delay on every boot.** `Applications/util/fsck.c:is_clean()` opens the device and `read()`s from **offset 0**, but the Fuzix superblock is **block 1 (offset 512)** (`fsck-fuzix.c` uses `daread(1)`; `labelfs.c` seeks 512). So the fast path never sees `SMOUNTED`/`FMOD_CLEAN` and always forks full `fsck-fuzix` (5 passes) even on a clean root. | `lseek(fd, 512L, SEEK_SET)` before reading the superblock in `is_clean()`; keep size/validity checks. **FIXED IN WORKING TREE** (`fsck.c`); armm0 util built; deploy via XMODEM + swap live binary, then measure boot. | Clean root: boot no longer prints/runs a full fsck or incurs ~1 s; dirty root still runs repair. |
 
 ### B — Boot / init
 
@@ -113,6 +116,7 @@ Severity: **P0** = ship-blocker (crash / data loss / forensics black hole), **P1
 | B2 | P1 | `/bin/firstboot` interactive in `rc:23` blocks getty unattended; getty respawn has no limit (`init.c:193-220,608-610`); unbounded `open("/dev/tty1")` loop. | Move firstboot to first login or add timeout/safe default; add sysvinit-style respawn limit ("respawning too fast") + bounded tty open with diagnostic. | Unattended boot always reaches getty; dying getty doesn't fork-loop. |
 | B3 | P1 | `doexit()` calls `sync()` unconditionally when "due" (`process.c:933-948`, `EXIT_SYNC_TICKS=2000`=10 s) with no check for dirty buffers → ~5 s shell-exit gap; mount also syncs (`filesys.c:1429`). | Walk `bufpool` for `BF_DIRTY`; skip if none; remove mount-time sync (FTL journals metadata). | Shell exit returns to prompt immediately on clean sessions. |
 | B4 | P2 | `devlcd_init()` ~240 ms `busy_wait_ms` with IRQs off before EI (`devlcd.c:101-133`, `main.c:120-122`) — purely visual. | Defer non-essential LCD init past `__hard_ei()`; keep only 120 ms Sleep Out. | Faster console availability; no boot bytes dropped to LCD delay. |
+| [x] B5 | P2 | Software BOOTSEL via `picotool reboot -u -f` timed out: pico-sdk issue #2689 — `rom_reset_usb_boot` arms the single hardware watchdog (~10 ms) and `wfi`s, while FUZIX's tick keeps feeding that watchdog every 5 ms, so BOOTSEL never fires and the app boots after ~5 s. | `plt_bootsel_enter()` (set pending → `watchdog_disable()` → ROM `RESET_USB_BOOT`); `__wrap_rom_reset_usb_boot_extra()` parks core1; tick services the pending flag before `watchdog_update()`; `PICOIOC_FLASH` uses it; link `--wrap`. **DONE** commit `067b15d`. | `picotool reboot -u -f` reliably enters `2e8a:0003` within ~1 s, repeated, no physical BOOTSEL. ✅ |
 
 ### K — Build / config / dead code
 
@@ -225,11 +229,19 @@ Each phase ends with its acceptance test. Only mark issues `[x]` when the test p
   canary armed, no false trip; CardKB works; dirty-fs fsck fix cross-built. A 30-min
   compile soak is optional extra assurance, not a blocker.
 
-### Phase 2 — Console coherence & the LCD mirror (the reported symptom)
-- C1: `console_fanout` both-or-neither + equal ring sizes; C2: resolve liveness/backpressure.
-- D1: deferred pending bitmask + guaranteed worker; D2/D3: fix reentry + repaint bugs.
-- C3: centralized CR/LF; C5: gfx-mode resync.
-- **Acceptance:** byte-identical serial/LCD under bursts + compiler load; no same-line prompts; LCD keeps updating under load.
+### Phase 2 — Console coherence & the LCD mirror (the reported symptom) — IN PROGRESS
+- [x] C3: VT LF now implies CR (`charout()` zeroes `cursorx`); LCD prompt stacking fixed.
+      Commit `92f59ac`. **DEVICE VERIFIED.**
+- [~] D1: `vt_pending()`/`vt_drain()`/`vt_pump()` + `tty_putc` pump (256 B) and LCD
+      kick when backlog ≥64, thread-context only. Commit `6ed3dec`. Root cause proven
+      (`vt_dropped` 0→295 under burst). Flashed; re-run burst to confirm 0 drops.
+- [ ] C1: `console_fanout` both-or-neither + equal ring sizes; C2: resolve liveness/backpressure.
+- [ ] C7: duplicate/stacked `RP2040 login:` prompts on one line (new).
+- [ ] C8: late boot-banner tail emitted after `login:` (new — ordering/flush).
+- [ ] D2/D3: fix reentry + repaint bugs.
+- [ ] C5: gfx-mode resync.
+- **Acceptance:** byte-identical serial/LCD under bursts + compiler load; no same-line prompts
+  (including `login:`); LCD keeps updating under load; boot output complete before prompt.
 
 ### Phase 3 — Forensics (so future crashes are diagnosable)
 - S5: persist fault record across reset; S4: separate core1 fault handler.
@@ -243,9 +255,11 @@ Each phase ends with its acceptance test. Only mark issues `[x]` when the test p
 
 ### Phase 4 — Filesystem, boot & input robustness
 - F1/F3/F5: single device flush ordering, barriers, explicit SPI ownership, bounded SD retry.
+- F6: fix `fsck` clean fast path (superblock offset 512) — remove ~1 s clean-root delay.
 - B2/B3/B4: getty respawn limit, non-blocking firstboot, cheap exit sync, deferred LCD init.
 - I2/I3/I4: keyboard backpressure, atomic escape sequences, flush mapping fixes.
-- **Acceptance:** no shell-exit gap; no stale bytes after `TCSAFLUSH`; input soak clean; SPI contention clean.
+- **Acceptance:** no shell-exit gap; no stale bytes after `TCSAFLUSH`; clean root boots without
+  a full fsck; input soak clean; SPI contention clean.
 
 ### Phase 5 — Cohesion (Linux-like contracts)
 - C4: `struct console`; D5: formalized barriers; S3: stack watermarks + core1 stack bump.
