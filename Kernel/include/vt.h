@@ -52,6 +52,9 @@ void vtinit(void);
 void vtdefer(unsigned char c);
 void vt_task(void);
 void vt_purge(void);
+/* Pending count + bounded drain for the write path (MASTER_PLAN D1). */
+uint16_t vt_pending(void);
+void vt_pump(unsigned int budget);
 /* Mode switcher functions */
 void vt_save(struct vt_switch *vt);
 void vt_load(struct vt_switch *vt);

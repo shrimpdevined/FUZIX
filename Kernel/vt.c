@@ -101,6 +101,15 @@ uint32_t vt_dropped_count(void)
 	return vtd_dropped;
 }
 
+/* How many deferred bytes are waiting to be rendered.  Read without di():
+ * the platform uses this only as a heuristic to decide whether to pump the
+ * queue from process context, so a torn read is harmless (it can only make
+ * us pump one byte early or late). */
+uint16_t vt_pending(void)
+{
+	return (uint16_t)(vtd_head - vtd_tail);
+}
+
 static void cursor_fix(void)
 {
 	if (cursorx < 0) {
@@ -274,12 +283,11 @@ void vt_purge(void)
 	irqrestore(irq);
 }
 
-/* Render queued bytes.  Bounded per call so an idle hook can make progress
- * without monopolising the CPU; callers repeat until the queue is empty. */
-void vt_task(void)
+/* Render queued bytes, at most `budget` of them. */
+static unsigned int vt_drain(unsigned int budget)
 {
 	unsigned int n = 0;
-	while (n++ < 32) {
+	while (n < budget) {
 		unsigned char c;
 		irqflags_t irq = di();
 		if (vtd_tail == vtd_head) {
@@ -290,7 +298,27 @@ void vt_task(void)
 		vtd_tail++;
 		irqrestore(irq);
 		vtoutput(&c, 1);
+		n++;
 	}
+	return n;
+}
+
+/* Render queued bytes.  Bounded per call so an idle hook can make progress
+ * without monopolising the CPU; callers repeat until the queue is empty. */
+void vt_task(void)
+{
+	(void)vt_drain(32);
+}
+
+/* Drain a larger batch from PROCESS context (the syscall write path).  The
+ * idle hook only runs when nready==0, so a sustained output burst never
+ * drains vtd_buf and it overflows, silently dropping bytes mid-line.  The
+ * writer itself is the ideal pump: it is thread context (SPI-safe) and it is
+ * the producer, so draining here bounds the queue regardless of scheduling
+ * (MASTER_PLAN D1).  IRQ/boot callers pass u_ininterrupt and never come here. */
+void vt_pump(unsigned int budget)
+{
+	(void)vt_drain(budget);
 }
 
 /* VT52 alike functionality */

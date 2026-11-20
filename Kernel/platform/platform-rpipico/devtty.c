@@ -134,6 +134,20 @@ void tty_putc(uint_fast8_t minor, uint_fast8_t c)
         usbconsole_putc(1, c);
         vtdefer(c);
         irqrestore(irq);
+        /* Bound the deferred queue from the producer side (MASTER_PLAN D1).
+         * plt_idle_hook only runs when nready==0, so during a sustained
+         * output burst it never drains vtd_buf: the queue overflows and drops
+         * bytes (device-measured vt_dropped 0->295 on a `ls` burst) while the
+         * USB ring keeps draining on core1.  A dropped \r/\n then stacks the
+         * next prompt on one LCD row though serial looks fine.  Here we are
+         * in the writer's *thread* context (SPI-safe) and we are the
+         * producer, so pumping once a small backlog builds keeps the queue
+         * bounded and the LCD in lockstep with serial.  Echo/kputchar run with
+         * u_ininterrupt set (or before lcd_ready) and must not touch SPI. */
+        if (!udata.u_ininterrupt && vt_pending() >= 64) {
+            vt_pump(256);
+            lcd_task();
+        }
         return;
     }
     struct ttymap *map = &ttymap[minor];
