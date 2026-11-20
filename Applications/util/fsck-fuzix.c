@@ -76,6 +76,7 @@ static int dev_fd;
 static int error;
 static int rootfs;
 static int aflag;
+static int yflag;   /* -a implies automatic yes (Linux fsck -a/-y semantics) */
 
 static unsigned char *bitmap;
 static uint16_t bitmap_size;
@@ -104,6 +105,11 @@ static uint16_t max_inode;
 static int yes_noerror(void)
 {
     static char buf[16];
+    /* Linux fsck -a/-y: automatic repair mode never blocks on stdin.  With
+     * rc running `fsck -a /dev/hda2 >/dev/null 2>&1`, a prompt is invisible
+     * AND waits forever for input -> boot hang (MASTER_PLAN F2). */
+    if (yflag)
+        return 1;
     fflush(stdout);
     do {
         if (fgets(buf, 15, stdin) == NULL)
@@ -297,6 +303,7 @@ int main(int argc, char *argv[])
 {
     if (argc == 3 && strcmp(argv[1], "-a") == 0) {
         aflag = 1;
+        yflag = 1;   /* -a implies auto-yes: never prompt at boot */
         argv++;
     } else if(argc != 2) {
         fputs("syntax: fsck-fuzix [-a] [devfile]\n", stderr);
