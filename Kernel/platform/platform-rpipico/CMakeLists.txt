@@ -135,6 +135,12 @@ target_link_libraries(fuzix
     tinyusb_device
 )
 
+# The SDK's USB-reset driver calls rom_reset_usb_boot_extra() from core1 when
+# the host asks for BOOTSEL.  Redirect it to our deferred handler in misc.c:
+# the bootrom drives the watchdog that core0's tick feeds, so calling it
+# directly from core1 never reboots (pico-sdk #2689).
+target_link_options(fuzix PRIVATE "LINKER:--wrap=rom_reset_usb_boot_extra")
+
 pico_set_float_implementation(fuzix none)
 pico_set_double_implementation(fuzix none)
 pico_add_extra_outputs(fuzix)

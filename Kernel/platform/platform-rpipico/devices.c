@@ -70,6 +70,13 @@ static void timer_tick_cb(unsigned alarm)
     if (!plt_stack_canary_ok())
         panic("kstack overflow");
 
+    /* Service a pending BOOTSEL request before feeding the watchdog.  The
+     * bootrom enters BOOTSEL through the same hardware watchdog we feed
+     * below, so it must run with interrupts off and with the feed stopped
+     * (pico-sdk #2689).  Does not return on success. */
+    if (plt_bootsel_pending)
+        plt_bootsel_enter();
+
     /* Feed the watchdog FIRST, before any potentially-long work (I2C keyboard
      * poll, tty drain).  Linux's watchdog discipline touches the device early
      * so a slow handler still has the full timeout window; doing it last meant

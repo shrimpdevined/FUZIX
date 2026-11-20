@@ -17,6 +17,57 @@ uaddr_t ramtop = (uaddr_t) PROGTOP;
 uint8_t sys_stubs[sizeof(struct exec)];
 uint16_t swap_dev = 0xffff;
 
+/* Set by any path that wants BOOTSEL (picoctl flash, or the SDK USB-reset
+ * driver via the --wrap below).  Serviced by the core0 tick, which owns the
+ * watchdog feed; see picosdk.h and pico-sdk issue #2689. */
+volatile uint8_t plt_bootsel_pending;
+
+/* Enter the ROM USB bootloader.  The bootrom schedules a BOOTSEL reset through
+ * the hardware watchdog (about 10 ms) and idles in wfi waiting for it.  Our
+ * timer tick feeds that watchdog every 5 ms, so unless we stop the feed the
+ * reset is continually reloaded and never happens: the core just parks and a
+ * later ordinary watchdog reset boots the application again.  Disabling
+ * interrupts keeps this core from feeding it and watchdog_disable() clears
+ * the application timeout, leaving the bootrom's short timeout as the only
+ * one armed (pico-sdk #2689). */
+void plt_bootsel_enter(void)
+{
+    typedef void (*reset_usb_boot_fn)(uint32_t, uint32_t);
+    reset_usb_boot_fn fn;
+    irqflags_t irq = di();
+
+    /* Suppress the tick feed even on the failure path below. */
+    plt_bootsel_pending = 1;
+    watchdog_disable();
+
+    fn = (reset_usb_boot_fn)rom_func_lookup(ROM_FUNC_RESET_USB_BOOT);
+    if (fn != NULL)
+        fn(0, 0);
+
+    /* Only reached if the bootrom declined to reboot; do not leave the
+     * machine running with no watchdog or with a stuck request flag. */
+    plt_bootsel_pending = 0;
+    watchdog_enable(5000, false);
+    irqrestore(irq);
+}
+
+/* The SDK USB-reset driver (pico_usb_reset) calls this from core1 when the
+ * host asks picotool to reboot into BOOTSEL.  We must not drive the watchdog
+ * from there: core0's tick would keep reloading it.  Record the request and
+ * park core1; the core0 tick performs the reset with the feed suppressed.
+ * Linked with -Wl,--wrap=rom_reset_usb_boot_extra. */
+void __wrap_rom_reset_usb_boot_extra(int gpio, uint32_t disable_mask,
+                                     bool active_low)
+{
+    (void)gpio;
+    (void)disable_mask;
+    (void)active_low;
+    plt_bootsel_pending = 1;
+    __mem_fence_release();
+    for (;;)
+        tight_loop_contents();
+}
+
 /* Kernel-stack overflow canary (MASTER_PLAN M1).  The syscall stack starts at
  * udata+UDATA_SIZE and grows DOWN toward the u_data struct; the historic
  * "panic: corrupt inode" came from it overwriting u_files/u_cwd.  Place a
@@ -70,8 +121,10 @@ int plt_dev_ioctl(uarg_t request, char *data)
     used(data);
     if (request == PICOIOC_FLASH)
     {
-        reset_usb_boot(0, 0);
-        return 0;
+        /* Runs on core0 in syscall context; enter BOOTSEL with the tick's
+         * watchdog feed suppressed rather than racing it. */
+        plt_bootsel_enter();
+        return 0;   /* only if the bootrom declined to reboot */
     }
     if (request == PICOIOC_DIAG)
     {
