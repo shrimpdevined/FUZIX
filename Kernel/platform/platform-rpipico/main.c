@@ -69,6 +69,19 @@ uint_fast8_t plt_param(char* p)
  * PICOIOC_CRASHLOG and writes /var/log/crash.log at boot. */
 void fatal_exception_handler(struct extended_exception_frame* eh)
 {
+    /* A core1 fault must not run the full handler: it shares the vector
+     * table with core0, and crashlog_flush() would try to lock out the
+     * very core it is running on (deadlock).  Record the minimal context
+     * in scratch and reset immediately. */
+    if (get_core_num() == 1) {
+        watchdog_hw->scratch[0] = 0x43314331UL;  /* "C1C1" */
+        watchdog_hw->scratch[1] = (uint32_t)eh->cause;
+        watchdog_hw->scratch[2] = (uint32_t)eh->pc;
+        watchdog_hw->scratch[3] = (uint32_t)eh->lr;
+        watchdog_reboot(0, 0, 0);
+        for (;;) { tight_loop_contents(); }
+    }
+
     /* Capture BEFORE any printf: a hard-fault context may not survive
      * kprintf/VT re-entry.  No flash I/O here -- only a RAM copy. */
     crashlog_capture(eh);
@@ -104,6 +117,17 @@ int main(void)
 {
     // early init to handle boot kernel messages
     devtty_early_init();
+
+    /* Report a core1 fault from the previous boot (S4).  Core1 shares
+     * the vector table with core0 but cannot run the full crash-log
+     * flush (it would lock itself out), so it stores a minimal record. */
+    if (watchdog_hw->scratch[0] == 0x43314331UL) {
+        kprintf("Previous boot: CORE1 FAULT cause=%u pc=%x lr=%x\n",
+                (unsigned)watchdog_hw->scratch[1],
+                (unsigned)watchdog_hw->scratch[2],
+                (unsigned)watchdog_hw->scratch[3]);
+        watchdog_hw->scratch[0] = 0;
+    }
 
     if ((U_DATA__U_SP_OFFSET != offsetof(struct u_data, u_sp)) ||
         (U_DATA__U_PTAB_OFFSET != offsetof(struct u_data, u_ptab)) ||
