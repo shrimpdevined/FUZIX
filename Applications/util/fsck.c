@@ -57,7 +57,11 @@ static int is_clean(const char *path)
 	fd = open(path, O_RDONLY);
 	if (fd == -1)
 		return 0;
-	if (read(fd, &fs, sizeof(fs)) != sizeof(fs)) {
+	/* The Fuzix superblock is block 1, not block 0.  Reading from
+	   offset 0 made this fast path always fail, so every boot paid
+	   for a full fsck-fuzix run. */
+	if (lseek(fd, 512L, SEEK_SET) == -1 ||
+	    read(fd, &fs, sizeof(fs)) != sizeof(fs)) {
 		close(fd);
 		return 0;
 	}
