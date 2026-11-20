@@ -124,8 +124,8 @@ extern uint8_t progbase[USERMEM];
 #define SWAPTOP (PROGBASE + (uaddr_t)alignup(udata.u_break - PROGBASE, 1<<BLKSHIFT)) /* never swap in/out data above break */
 #define SWAP_SIZE   ((PROGSIZE >> BLKSHIFT) + UDATA_BLKS)
 /* hda3 swap is 512 blocks (256 KB); SWAP_SIZE ~= 182 KB, so at most one
- * full process image fits.  Keep the array small and honest. */
-#define MAX_SWAPS   2
+ * full process image fits.  A second map would be silently ignored (M5). */
+#define MAX_SWAPS   1
 
 #define BOOT_TTY (512 + 1)   /* Set this to default device for stdio, stderr */
                           /* In this case, the default is the first TTY device */

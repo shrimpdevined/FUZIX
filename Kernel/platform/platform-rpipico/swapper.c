@@ -366,8 +366,13 @@ int swapout(ptptr p)
         int blockindex = b - allocation_map;
         void* p = (void*)PROGBASE + blockindex*BLOCKSIZE;
 
-        swapwrite(SWAPDEV, swaparea + (i*(BLOCKSIZE>>BLKSHIFT)),
-            BLOCKSIZE, (uaddr_t)p, 1);
+        /* Check the swap write (M5): a failed write leaves stale data in
+         * the slot, which would be silently loaded by the next swapin. */
+        if (swapwrite(SWAPDEV, swaparea + (i*(BLOCKSIZE>>BLKSHIFT)),
+            BLOCKSIZE, (uaddr_t)p, 1) < 0) {
+            swapmap_add(map);
+            return EIO;
+        }
 
         b->slot = b->block = 0xff;
     }
@@ -396,8 +401,11 @@ void swapin(ptptr p, uint16_t map)
         int blockindex = b - allocation_map;
         void* p = (void*)PROGBASE + blockindex*BLOCKSIZE;
 
-        swapread(SWAPDEV, swaparea + (i*(BLOCKSIZE>>BLKSHIFT)),
-            BLOCKSIZE, (uaddr_t)p, 1);
+        /* Check the swap read (M5): loading a failed block would execute
+         * stale/garbage memory. */
+        if (swapread(SWAPDEV, swaparea + (i*(BLOCKSIZE>>BLKSHIFT)),
+            BLOCKSIZE, (uaddr_t)p, 1) < 0)
+            panic("swapin: read failed");
 
         b->slot = slot;
         b->block = i;
