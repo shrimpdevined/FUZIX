@@ -107,7 +107,7 @@ Severity: **P0** = ship-blocker (crash / data loss / forensics black hole), **P1
 | F3 | P1 | No write ordering in `sync()`: inodes → superblocks (clean) → bufsync, no barrier (`inode.c:387-413`). Dhara journal (FTL rollback) and Fuzix `s_fmod` dirty bit are uncoordinated. | Order: inodes → flush → superblocks clean → flush → bufsync+flush. Only flip `s_fmod` clean after final flush succeeds. | Crash mid-sync: no clean-looking fs with rolled-back data. |
 | F4 | P2 | FAT special-cased by magic `m_flags & 0x80` spread across `inode.c:396, filesys.c:981, syscall_other.c:483,589, devfat.c:53,71`; `blkdev_rw()` returns -1 without `u_error` (`blkdev.c:98-125`); one global `blk_op`. | Add `m_type`/ops vector; typed errors from block layer; surface `dhara_error_t`. | FAT and native fs dispatch uniformly; SD/Dhara errors diagnosable. |
 | F5 | P1 | Shared SPI0 (SD vs LCD) is a cooperative flag (`sd_drive`, `devlcd.c:44-46`, `devsd.c:48-52`); no explicit owner; `devfb_write` returns EBUSY; SD retry up to 8×3 s (`devsd.c:54-64,115-134`) can exceed 5 s watchdog. | Explicit `spi0_owner` claim under `di()`; LCD worker re-queues on contention; cap total SD retry < watchdog. | Heavy SD + LCD: no `sd: timeout` spiral, no watchdog reset. |
-| [~] F6 | P2 | **~1 s "Checking root file system" delay on every boot.** `Applications/util/fsck.c:is_clean()` opens the device and `read()`s from **offset 0**, but the Fuzix superblock is **block 1 (offset 512)** (`fsck-fuzix.c` uses `daread(1)`; `labelfs.c` seeks 512). So the fast path never sees `SMOUNTED`/`FMOD_CLEAN` and always forks full `fsck-fuzix` (5 passes) even on a clean root. | `lseek(fd, 512L, SEEK_SET)` before reading the superblock in `is_clean()`; keep size/validity checks. **DONE** commit `6eb3d30`; armm0 util built. Live `/bin` is root-owned and login is uid 1000 `devops`, so it cannot be swapped in place (`touch /bin/x` → EPERM); ship it with the next filesystem image and measure a clean-root boot. | Clean root: boot no longer prints/runs a full fsck or incurs ~1 s; dirty root still runs repair. |
+| [x] F6 | P2 | **~1 s "Checking root file system" delay on every boot.** `is_clean()` read the superblock from offset 0 instead of block 1 (offset 512), so the fast path always failed and every boot ran full `fsck-fuzix` (5 passes). | `lseek(fd, 512, SEEK_SET)` in `is_clean()` (`6eb3d30`); shipped in the rebuilt image. | **DEVICE VERIFIED:** `/bin/fsck` is 7572 B (fixed build); `fsck -a /` returns `Done.` in 0.6 s with no full passes on a clean root. |
 
 ### B — Boot / init
 
@@ -270,8 +270,8 @@ Each phase ends with its acceptance test. Only mark issues `[x]` when the test p
 
 ### Phase 4 — Filesystem, boot & input robustness
 - F1/F3/F5: single device flush ordering, barriers, explicit SPI ownership, bounded SD retry.
-- F6: fix `fsck` clean fast path (superblock offset 512) — remove ~1 s clean-root delay
-      (`6eb3d30`; ships with next filesystem image — live `/bin` is root-owned).
+- [x] F6: `fsck` clean fast path fixed and shipped; clean-root boot no longer
+      runs the full 5-pass check (device verified, 0.6 s).
 - B2/B3/B4: getty respawn limit, non-blocking firstboot, cheap exit sync, deferred LCD init.
 - I2/I3/I4: keyboard backpressure, atomic escape sequences, flush mapping fixes.
 - **Acceptance:** no shell-exit gap; no stale bytes after `TCSAFLUSH`; clean root boots without
