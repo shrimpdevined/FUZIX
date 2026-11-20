@@ -409,7 +409,12 @@ void swapin(ptptr p, uint16_t map)
 
 arg_t brk_extend(uaddr_t addr)
 {
-    if (addr < PROGBASE)
+    /* Validate the whole request up front (Linux do_brk_flags model): reject
+     * addresses below the program load point (which would land inside udata)
+     * or beyond the per-process ceiling, before any swap/realloc work.  The
+     * old check only rejected addr < PROGBASE, so [PROGBASE,PROGLOAD) was
+     * accepted and an absurd addr thrashed the swapper before failing. */
+    if (addr < PROGLOAD || addr > PROGTOP)
         return EINVAL;
     if (addr >= brk_limit()) {
         /* Claim more memory for this process. */

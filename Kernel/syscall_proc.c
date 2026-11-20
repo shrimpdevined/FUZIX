@@ -260,11 +260,15 @@ arg_t _brk(void)
 	if ((udata.u_error = brk_extend(addr)) != 0)
 		return -1;
 	/* If we have done a break that gives us more room we must zero
-	   the extra as we no longer guarantee it is clear already */
+	   the extra as we no longer guarantee it is clear already.  Commit
+	   u_break to the new value, but roll it back if the zeroing fails so
+	   a failed brk never leaves an inconsistent break invariant. */
 	if (addr > udata.u_break) {
 		uaddr_t old_break = udata.u_break;
-		udata.u_break = addr; /* for safety checks in uzero */
-		uzero((void *)old_break, addr - old_break);
+		if (uzero((void *)old_break, addr - old_break)) {
+			udata.u_error = EFAULT;
+			return -1;
+		}
 	}
 	udata.u_break = addr;
 	return 0;
