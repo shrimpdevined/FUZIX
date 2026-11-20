@@ -140,7 +140,13 @@ extern uint8_t progbase[USERMEM];
  * timer tick verifies the band is intact and warns once if the stack reached
  * it.  This is a guard-band check rather than a full 7 KB scan: it costs no
  * static RAM beyond two scalars and only 8 words of the existing stack. */
-#define CONFIG_USERSTACK_GUARD
+/* M4 user-stack guard-band: DISABLED.  The stamp address is global but the
+ * tick checks it for whichever process is current, so it false-trips on every
+ * process switch (device: warning on every command).  The real stack-corruption
+ * contract is already covered by M1 (kernel canary at udata+0x120) and M8
+ * (-fstack-protector-strong).  Re-enable only after making the guard per-process
+ * and correlating it with the actual stack layout (MASTER_PLAN M4). */
+/* #define CONFIG_USERSTACK_GUARD */
 #define USTACK_GUARD_WORDS  8u
 #define USTACK_GUARD_MAGIC  0xA55AA55Au
 
