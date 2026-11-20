@@ -955,8 +955,18 @@ static pid_t getty(const char **argv, const char *id)
 				if ((p = strchr(buf, '\n')) != NULL)
 					*p = '\0';	/* strip newline */
 
-				if (*buf == 0)
+				if (*buf == 0) {
+					/* An echoed CR/LF for the empty line can reach
+					 * the console before this process is scheduled
+					 * to re-prompt.  Under a burst of Enters several
+					 * echoes then several prompts land back-to-back,
+					 * stacking "RP2040 login: RP2040 login: ..." on
+					 * one line (MASTER_PLAN C7).  Force column 0 so
+					 * every retry prompt starts at the left margin
+					 * without adding an extra blank line. */
+					putstr("\r");
 					continue;
+				}
 
 				pwd = getpwnam(buf);
 #endif
