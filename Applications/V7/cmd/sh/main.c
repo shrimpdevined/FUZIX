@@ -372,6 +372,13 @@ static void exfile(BOOL prof)
 				prompt_expand(ps1nod.namval, pbuf,
 					      sizeof(pbuf));
 				if (line_input(pbuf) < 0) {
+					/* Echoed CR/LFs for queued empty lines all
+					 * arrive before the shell is scheduled, so a
+					 * burst of Enters makes several prompts land
+					 * back-to-back on the last row.  A leading CR
+					 * returns to column 0 so they overwrite each
+					 * other instead of stacking (MASTER_PLAN C7). */
+					prc('\r');
 					prs(pbuf);
 					alarm(TIMEOUT);
 				}
@@ -396,8 +403,10 @@ void chkpr(char eor)
 		static char pbuf[PROMPT_MAX];
 
 		prompt_expand(ps2nod.namval, pbuf, sizeof(pbuf));
-		if (line_input(pbuf) < 0)
+		if (line_input(pbuf) < 0) {
+			prc('\r');
 			prs(pbuf);
+		}
 	}
 }
 
