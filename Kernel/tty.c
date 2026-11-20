@@ -294,6 +294,10 @@ int tty_ioctl(uint_fast8_t minor, uarg_t request, char *data)
 		return uput(&t->termios, data, sizeof(struct termios));
 	case TCSETSF:
 		clrq(&ttyinq[minor]);
+		/* Also drain the device-side staging ring: bytes already in
+		 * the USB FIFO would otherwise reappear at the next prompt
+		 * (MASTER_PLAN I4). */
+		tty_flushinput(minor);
 		/* Fall through for now */
 	case TCSETSW:
 		waito = 1;

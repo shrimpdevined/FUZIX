@@ -9,6 +9,7 @@
 #include "picosdk.h"
 #include "config.h"
 #include "core1.h"
+#include "devtty.h"
 
 #define ssize_t __ssize_t
 #define time_t __time_t
@@ -119,7 +120,10 @@ static struct console_t *console_get(uint8_t usb_num)
  * moving bytes into rbuf. */
 void tty_flushinput(uint_fast8_t minor)
 {
-	usbconsole_flushinput((uint8_t)minor);
+	/* Map the tty minor to its USB device number; the console minor is
+	 * not necessarily the USB number when tty= remapping is used. */
+	if (minor <= NUM_DEV_TTY && ttymap[minor].drv == TTYDRV_USB)
+		usbconsole_flushinput((uint8_t)ttymap[minor].tty);
 }
 
 void usbconsole_flushinput(uint8_t usb_num)
