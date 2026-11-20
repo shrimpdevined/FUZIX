@@ -11,6 +11,11 @@ struct ttydriver
     void (*sleeping)(uint8_t devn);
     int (*getc)(uint8_t devn);
     void (*setup)(uint_fast8_t minor, uint_fast8_t devn, uint_fast8_t flags);
+    /* K5: optional presence check.  NULL means "always present".  A driver
+     * that fails probe is never mapped to a tty, so absent hardware does
+     * not appear as a dead device node. */
+    uint_fast8_t (*probe)(void);
+    void (*remove)(void);
 };
 
 struct ttymap

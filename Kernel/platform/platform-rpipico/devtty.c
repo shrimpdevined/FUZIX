@@ -27,13 +27,20 @@ void no_setup(uint_fast8_t minor, uint_fast8_t devn, uint_fast8_t flags)
 
 struct ttydriver ttydrivers[2] =
     {
-        {rawuart_putc, rawuart_ready, rawuart_sleeping, rawuart_getc, rawuart_setup},
-        {usbconsole_putc, usbconsole_ready, usbconsole_sleeping, usbconsole_getc, no_setup},
+        {rawuart_putc, rawuart_ready, rawuart_sleeping, rawuart_getc,
+         rawuart_setup, rawuart_probe, rawuart_remove},
+        {usbconsole_putc, usbconsole_ready, usbconsole_sleeping, usbconsole_getc,
+         no_setup, NULL, NULL},
 };
 
 static void devtty_defconfig(uint8_t drv, int count, int minor)
 {
     int devnum = 1;
+    /* K5: never map a driver whose probe() says the hardware is absent.
+     * The rawuart stub owns GPIO0/1 and GPIO6-9 (keyboard/touch I2C), so
+     * it must not appear as a usable tty. */
+    if (ttydrivers[drv].probe && !ttydrivers[drv].probe())
+        return;
     while (devnum <= count)
     {
         ttymap[minor].tty = devnum++;

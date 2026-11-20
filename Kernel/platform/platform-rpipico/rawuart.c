@@ -11,3 +11,7 @@ int rawuart_getc(uint8_t devn) { (void)devn; return -1; }
 void rawuart_setup(uint_fast8_t minor, uint_fast8_t devn, uint_fast8_t flags) {
     (void)minor; (void)devn; (void)flags;
 }
+/* K5: the stub exists only to reserve UART pins for the keyboard/touch
+ * I2C buses.  Probe always fails so it is never registered as a live tty. */
+uint_fast8_t rawuart_probe(void) { return 0; }
+void rawuart_remove(void) {}

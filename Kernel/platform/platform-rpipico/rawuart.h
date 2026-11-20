@@ -9,5 +9,7 @@ extern ttyready_t rawuart_ready(uint8_t devn);
 extern void rawuart_sleeping(uint8_t devn);
 extern int rawuart_getc(uint8_t devn);
 extern void rawuart_setup(uint_fast8_t minor, uint_fast8_t devn, uint_fast8_t flags);
+extern uint_fast8_t rawuart_probe(void);
+extern void rawuart_remove(void);
 
 #endif
