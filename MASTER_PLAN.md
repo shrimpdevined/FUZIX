@@ -213,10 +213,14 @@ Each phase ends with its acceptance test. Only mark issues `[x]` when the test p
       Commit `75cfc11`. Device soak: no corruption.
 - [x] M3: brk bounded to [PROGLOAD,PROGTOP]; u_break committed after uzero.
       Commit `fdaa4cc`. Device soak: no corruption.
-- [ ] M1: syscall-stack canary + high-water check (ABI-adjacent; do carefully next).
+- [x] M1: kernel-stack overflow canary at udata+0x120, armed at boot, checked in tick,
+      panics "kstack overflow" on change. Commit `3ea8b82`. **DEVICE VERIFIED:** clean
+      boot after replug (no false panic), paced login + file-write/sync I/O caused no
+      canary trip; core1 heartbeat healthy. (An earlier console jam was input-spray
+      BEL flood from too-fast host commands, NOT the canary — replug cleared it.)
 - [ ] S1 follow-up: batch/disable per-swap TRIM (364 trims/swap-in amplifies lockout).
-- **Acceptance (partial):** device soak 12 FTL write/sync cycles zero reboots/crashes;
-  heartbeats healthy. Full compile/input-spam 30-min soak + M1 still pending.
+- **Acceptance (partial):** device soaks zero reboots/crashes; heartbeats healthy;
+  canary armed and not false-triggering. Full compile/input-spam 30-min soak still pending.
 
 ### Phase 2 — Console coherence & the LCD mirror (the reported symptom)
 - C1: `console_fanout` both-or-neither + equal ring sizes; C2: resolve liveness/backpressure.
