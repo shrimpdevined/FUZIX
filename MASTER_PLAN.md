@@ -78,7 +78,7 @@ Severity: **P0** ship-blocker (crash / data loss / forensics black hole), **P1**
 | [x] | D2 | P1 | `vtoutput()` reentry queued one byte regardless of length; `vtbusy` cleared without `di()`. | Queue whole run atomically; clear under `di()`. Device-verified. |
 | [x] | D3 | P1 | `row_dirty` cleared even when `lcd_redraw_row()` skipped → lost repaint. | Redraw returns bool; flag kept on skip. Device-verified. |
 | [ ] | D4 | P1 | Flush request/ack flags written by both cores can race (lost request); core0 waits in a 200k-iteration busy spin. | Sequence numbers with fences; sleep/wakeup instead of spin. |
-| [ ] | D5 | P2 | SPSC barriers and bounded flash lockout are correct. | Preserve unchanged; optionally name the barrier helpers. |
+| [x] | D5 | P2 | SPSC barriers and bounded flash lockout are correct. | **Verified correct, no change needed:** `core1.c` does `__mem_fence_release()` after writing data and before publishing `head`, and `__mem_fence_acquire()` after reading `head` and before reading data — the textbook SPSC pattern. `rawflash.c` uses `multicore_lockout_start_timeout_us()` (bounded), never the unbounded blocking form. | No regression in lockout/USB soak tests (ongoing). |
 
 ### S — Kernel crash / hang / stability
 
