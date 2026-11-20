@@ -35,7 +35,13 @@ int main(int argc, char *argv[])
         fprintf(stderr, "%s: '%s' has a partition table.\n", argv[0], argv[1]);
         exit(1);
     }
-    if (read (fd, buf, 512) != 512) {
+    /* M10: seek to block 1 before the filesystem check.  Without this the
+     * second read() re-reads block 0, so the superblock magic at block 1 is
+     * never examined and swapon can be pointed at hda1/hda2 — writing
+     * process images over the root filesystem superblock (observed: LBA 9
+     * s_mounted = 0x3CF9, panic("no root") on next boot). */
+    if (lseek (fd, 512, SEEK_SET) == (off_t)-1 ||
+        read (fd, buf, 512) != 512) {
         fprintf(stderr, "%s: unable to read '%s'.\n", argv[0], argv[1]);
         exit(1);
     }

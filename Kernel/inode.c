@@ -465,6 +465,13 @@ void sync(void)
 				m->m_fs.s_fmod = FMOD_CLEAN;
 			buf = bread(m->m_dev, 1, 1);
 			if (buf) {
+				/* M10 ROOT CAUSE: F3 (1a4fa8c) dropped this copy.  Without
+				 * it bread(...,1) can return an LRU buffer still holding
+				 * some other block's data, and bfree() writes that stale
+				 * payload straight over the superblock.  Observed on
+				 * device: s_mounted at LBA 9 became 0x3CF9 instead of
+				 * 0x31C6, causing panic("no root") on the next boot. */
+				blkfromk(&m->m_fs, buf, 0, sizeof(struct filesys));
 				if (bfree(buf, 2))
 					ok = -1;   /* writeback failed */
 			} else

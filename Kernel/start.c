@@ -327,13 +327,19 @@ void set_boot_line(const char *p)
 #else
 
 static uint8_t first = 1;
+static uint8_t retried_root;   /* M10: bounded mount retries for BOOTDEVICE */
 
 static inline uint16_t get_root_dev(void)
 {
 #ifdef BOOTPARAM
 	parse_args(BOOTPARAM);
 #endif
-	if (first) {
+	/* M10: was a one-shot — the first mount failure consumed the only
+	 * valid root device, so the mount retry loop could never retry and
+	 * went straight to panic("no root").  Offer the compiled-in device a
+	 * bounded number of times so a transient read failure can recover,
+	 * then give up normally rather than looping forever. */
+	if (first || ++retried_root <= 3) {
 		first = 0;
 		return BOOTDEVICE;
 	}

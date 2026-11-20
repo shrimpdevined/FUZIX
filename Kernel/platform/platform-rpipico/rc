@@ -21,12 +21,10 @@ klogd
 fsck -a /dev/hda2 >/dev/null 2>&1
 mount -a >/dev/null 2>&1
 
-# M10 Phase 3: swap is DISABLED until the whole-process swap path is proven
-# not to misdirect writes through the Dhara FTL.  A corrupted write was
-# observed landing on logical sector 9 (hda1's superblock), which made every
-# subsequent boot fail fmount() and panic("no root").  With swap off there is
-# no runtime write to hda3, so the FTL stays clean across reboots.
-# /bin/swapon /dev/hda3 512 >/dev/null 2>&1
+# Enable swap on hda3 (256 KB) so the compiler can run under memory pressure.
+# M10 Phase 3: re-enabled with the dhara_map_sync checkpoint barrier in
+# devflash.c; without swap the compiler fails with ENOMEM.
+/bin/swapon /dev/hda3 512 >/dev/null 2>&1
 
 # sudo authentication timestamps are only valid for a running system;
 # never let them survive a reboot.

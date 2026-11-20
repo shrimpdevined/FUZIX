@@ -87,6 +87,15 @@ static int trim_cb(void)
 	return 0;
 }
 
+/* FTL checkpoint for the block-layer flush barrier (once per sync(), F1).
+ * dhara_map_sync's signature differs from blk->flush, hence this wrapper. */
+static int flash_sync(void)
+{
+	dhara_error_t err = DHARA_E_NONE;
+	dhara_map_sync(&dhara, &err);
+	return err == DHARA_E_NONE ? 0 : -1;
+}
+
 void flash_dev_init(void)
 {
 	blkdev_t* blk = blkdev_alloc();
@@ -107,7 +116,15 @@ void flash_dev_init(void)
         nand.num_blocks * 4, lba / 2, XIP_NOCACHE_NOALLOC_BASE + FLASH_OFFSET);
 	
 	blk->transfer = transfer_cb;
-	/* NOTE: blk->flush (dhara_map_sync) is deliberately left unset.
+	/* M10 Phase 3: restore the FTL checkpoint barrier now that F1 guarantees
+	 * d_flush() is called at most once per mounted device per sync().
+	 * Without it a mid-swap reset can leave the Dhara radix tree pointing a
+	 * logical sector at the wrong physical page (observed: LBA 9 -> LBA
+	 * 1024's page, i.e. hda1's superblock overwritten by a data block). */
+	blk->flush = flash_sync;
+	/* NOTE: the following rationale was correct when d_flush() ran per-buffer;
+	 * F1 removed that.  Kept for provenance.
+	 * blk->flush (dhara_map_sync) was deliberately left unset.
 	 *
 	 * dhara_map_sync() forces a full journal GC checkpoint; on this flash it
 	 * can erase/program several blocks and hold the multicore lockout for a

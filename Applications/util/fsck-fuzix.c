@@ -411,7 +411,10 @@ static void pass1(void)
                         /* 1.4.98 - line split.  HFB */
                         if (yes()) {
                             buf[b] = 0;
-                            dwrite(b, (char *) buf);
+                            /* M10: b is the loop index, NOT a block number.
+                             * Writing index b clobbers blocks 0..255,
+                             * including the superblock (block 1 = LBA 9). */
+                            dwrite(ino.i_addr[19], (char *) buf);
                         }
                     }
                     if (buf[b] != 0)
@@ -874,8 +877,10 @@ static void setblkno(struct dinode *ino, blkno_t num, blkno_t dnum)
             panic(missing_ind_blk);
 
         buf = (blkno_t *) daread(dindb);
-        buf[(num - (18 + 256)) & 0x00ff] = num;
-        dwrite(indb, (char *) buf);
+        /* M10: store the physical block number and write back the DOUBLE
+         * indirect block, not the single-indirect one. */
+        buf[(num - (18 + 256)) & 0x00ff] = dnum;
+        dwrite(dindb, (char *) buf);
     }
 }
 
