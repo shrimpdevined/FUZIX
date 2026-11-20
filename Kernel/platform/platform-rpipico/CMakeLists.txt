@@ -114,6 +114,9 @@ target_compile_definitions(fuzix PRIVATE
 target_compile_options(fuzix PRIVATE
     $<$<COMPILE_LANGUAGE:C>:
         -Wall -Wextra -Wno-unused-parameter
+        # M8: stack protector. Runtime (__stack_chk_guard/__stack_chk_fail)
+        # lives in Kernel/process.c.  Cost: +208 B .data, ~1.1 KB SRAM left.
+        -fstack-protector-strong
         -Wno-sign-compare          # legacy off_t/uoff_t/int mixes across VFS
         -Wno-unused-value          # comma-expression macros (i_ref, _uget/_uput)
         -Wno-implicit-fallthrough  # switch fallthroughs in generic syscall code
