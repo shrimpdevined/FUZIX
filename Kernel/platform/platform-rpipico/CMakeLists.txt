@@ -49,6 +49,7 @@ add_executable(fuzix
 	swapper.c
 	tricks.S
 	core1.c
+	crashlog.c
 	devgpio.c
 	usbdescriptors.c
 	devlcd.c

@@ -4,6 +4,7 @@
 #include <exec.h>
 #include "picosdk.h"
 #include "pico_ioctl.h"
+#include "globals.h"
 #include "core1.h"
 #include <vt.h>
 #include <pico/multicore.h>
@@ -107,6 +108,11 @@ void plt_reboot(void)
 
 void plt_monitor(void)
 {
+    /* Persist the fatal-exception record to QSPI BEFORE the reset.  The
+     * live kprintf dump is frequently lost when USB re-enumerates; the
+     * flash record is read by userspace into /var/log/crash.log at boot. */
+    crashlog_flush();
+
     /* A panic must not permanently brick the device (that was the old
      * infinite sleep, and it also killed core1 = the only USB console, so
      * the failure looked like a dead hang).  Give the console time to flush
@@ -125,6 +131,15 @@ int plt_dev_ioctl(uarg_t request, char *data)
          * watchdog feed suppressed rather than racing it. */
         plt_bootsel_enter();
         return 0;   /* only if the bootrom declined to reboot */
+    }
+    if (request == PICOIOC_CRASHLOG)
+    {
+        /* Return the persisted fatal-exception record (512 B) so userspace
+         * can write it to /var/log/crash.log with cat/picoctl. */
+        struct pico_crashlog rec;
+        if (!crashlog_get(&rec))
+            return -1;
+        return uput((const unsigned char *)&rec, data, sizeof(rec));
     }
     if (request == PICOIOC_DIAG)
     {

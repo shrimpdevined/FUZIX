@@ -321,6 +321,26 @@ void vt_pump(unsigned int budget)
 	(void)vt_drain(budget);
 }
 
+/* Copy the last n bytes enqueued for the VT/LCD into dst.  Used by the
+ * fatal handler to capture what was on its way to the console; the ring is
+ * populated in FIFO order by vtdefer() under di(), so a single snapshot is
+ * enough (no drain, safe from fault context). */
+void vt_crash_tail(unsigned char *dst, unsigned int n)
+{
+	unsigned int count = (unsigned int)(uint16_t)(vtd_head - vtd_tail);
+	unsigned int start;
+
+	if (count > VT_DEFER_LEN)
+		count = VT_DEFER_LEN;
+	if (count > n)
+		count = n;
+	start = (uint16_t)(vtd_head - count);
+	while (count--) {
+		*dst++ = vtd_buf[start & VT_DEFER_MASK];
+		start++;
+	}
+}
+
 /* VT52 alike functionality */
 void vtoutput(unsigned char *p, unsigned int len)
 {

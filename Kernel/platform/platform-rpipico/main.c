@@ -63,26 +63,15 @@ uint_fast8_t plt_param(char* p)
     return 0;
 }
 
-/* Forensics survive watchdog reset: fatal_exception_handler stores the
-   fault context in the watchdog scratch registers (SRAM-backed, kept
-   across watchdog_reboot).  Printed at the next boot so a crash that
-   resets USB before the console drains is still diagnosable. */
-#define CRASH_MAGIC 0x46554C54UL	/* "FULT" */
-
+/* Forensics survive watchdog reset: the fatal handler captures the fault
+ * frame into a RAM buffer (crashlog.c), which plt_monitor() flushes to a
+ * reserved QSPI sector before the reset.  Userspace reads it via
+ * PICOIOC_CRASHLOG and writes /var/log/crash.log at boot. */
 void fatal_exception_handler(struct extended_exception_frame* eh)
 {
-    /* Store the record BEFORE any printf: a hard-fault context may not
-     * survive kprintf/VT re-entry, and losing the dump to a second fault
-     * would leave no evidence at all.  scratch[] survives the watchdog
-     * reset that follows. */
-    watchdog_hw->scratch[0] = CRASH_MAGIC;
-    watchdog_hw->scratch[1] = (uint32_t)eh->cause;
-    watchdog_hw->scratch[2] = (uint32_t)eh->r0;
-    watchdog_hw->scratch[3] = (uint32_t)eh->r1;
-    watchdog_hw->scratch[4] = (uint32_t)eh->lr;
-    watchdog_hw->scratch[5] = (uint32_t)eh->pc;
-    watchdog_hw->scratch[6] = (uint32_t)eh->sp;
-    watchdog_hw->scratch[7] = 0;
+    /* Capture BEFORE any printf: a hard-fault context may not survive
+     * kprintf/VT re-entry.  No flash I/O here -- only a RAM copy. */
+    crashlog_capture(eh);
     kprintf("FLAGRANT SYSTEM ERROR! EXCEPTION %d\n", eh->cause);
     kprintf(" r0=%p r1=%p  r2=%p  r3=%p\n", eh->r0, eh->r1, eh->r2, eh->r3);
     kprintf(" r4=%p r5=%p  r6=%p  r7=%p\n", eh->r4, eh->r5, eh->r6, eh->r7);
@@ -115,22 +104,6 @@ int main(void)
 {
     // early init to handle boot kernel messages
     devtty_early_init();
-
-    /* Report a fatal exception saved by the previous boot before its
-     * watchdog reset.  The live kprintf dump can be lost when USB resets
-     * before core1 drains the ring; scratch[] survives the reset. */
-    if (watchdog_hw->scratch[0] == CRASH_MAGIC) {
-        kprintf("Previous boot: FLAGRANT SYSTEM ERROR! EXCEPTION %u\n",
-                (unsigned)watchdog_hw->scratch[1]);
-        kprintf(" r0=%08x r1=%08x lr=%08x pc=%08x sp=%08x pid=%u\n",
-                (unsigned)watchdog_hw->scratch[2],
-                (unsigned)watchdog_hw->scratch[3],
-                (unsigned)watchdog_hw->scratch[4],
-                (unsigned)watchdog_hw->scratch[5],
-                (unsigned)watchdog_hw->scratch[6],
-                (unsigned)watchdog_hw->scratch[7]);
-        watchdog_hw->scratch[0] = 0;
-    }
 
     if ((U_DATA__U_SP_OFFSET != offsetof(struct u_data, u_sp)) ||
         (U_DATA__U_PTAB_OFFSET != offsetof(struct u_data, u_ptab)) ||

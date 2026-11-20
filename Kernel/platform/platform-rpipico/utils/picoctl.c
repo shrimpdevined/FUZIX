@@ -13,6 +13,7 @@ int main(int argc, char **argv)
         puts("Command list:");
         puts("\tflash\tReset into flash mode.");
         puts("\tdiag\tShow console/VT drop counters and core1 liveness.");
+        puts("\tcrashlog [file]\tDump last fatal-exception record (to file).");
         return 0;
     }
     int fd = open("/dev/sys", O_RDWR, 0);
@@ -36,6 +37,61 @@ int main(int argc, char **argv)
         printf("vt_dropped:     %u\n", d.vt_dropped);
         printf("core1_beat:     %u\n", d.core1_heartbeat);
         printf("core1_state:    %u\n", d.core1_state);
+        close(fd);
+        return 0;
+    }
+
+    if (strcmp(argv[1], "crashlog") == 0)
+    {
+        struct pico_crashlog r;
+        static const char *names[17] = {
+            "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7",
+            "r8", "r9", "r10", "r11", "r12", "sp", "lr", "pc", "psr"
+        };
+        int i;
+        FILE *out = stdout;
+        /* Write directly to a file when named.  FUZIX sh mis-executes a
+         * redirected binary (treats the ELF as a script), so rc cannot use
+         * `picoctl crashlog > file` -- let the tool open the file itself. */
+        if (argc >= 3)
+        {
+            out = fopen(argv[2], "w");
+            if (out == NULL)
+            {
+                perror("cannot create crashlog file");
+                close(fd);
+                return 1;
+            }
+        }
+        if (ioctl(fd, PICOIOC_CRASHLOG, &r) != 0)
+        {
+            fputs("No crash record.\n", out);
+            if (out != stdout)
+                fclose(out);
+            close(fd);
+            return 0;   /* not an error: clean boot has none */
+        }
+        fprintf(out, "FLAGRANT SYSTEM ERROR! EXCEPTION %u\n", (unsigned)r.cause);
+        for (i = 0; i < 17; i++)
+            fprintf(out, "%s=%x\n", names[i], (unsigned)r.r[i]);
+        fprintf(out, "PROGBASE=%x PROGLOAD=%x PROGTOP=%x\n",
+                0x20008C98, 0x20009898, 0x20036498);
+        fprintf(out, "user-rel lr=%x pc=%x\n",
+                (unsigned)(r.r[14] - 0x20009898),
+                (unsigned)(r.r[15] - 0x20009898));
+        fputs("--- console tail before fault ---\n", out);
+        for (i = 0; i < (int)sizeof(r.tail); i++) {
+            unsigned char c = r.tail[i];
+            if (c == 0)
+                break;
+            if ((c >= 32 && c < 127) || c == '\n' || c == '\r')
+                fputc(c, out);
+            else
+                fputc('.', out);
+        }
+        fputs("\n--- end ---\n", out);
+        if (out != stdout)
+            fclose(out);
         close(fd);
         return 0;
     }

@@ -2,6 +2,9 @@ umask 022
 fsck -a /
 setdate
 remount -n / rw
+# Persist the previous boot's fatal-exception record to a plain file so it
+# survives USB re-enumeration and can be read with cat (MASTER_PLAN S5/S8).
+picoctl crashlog /var/log/crash.log
 prtroot >/etc/mtab
 #Uncomment if you have multiple file systems
 #fsck -a

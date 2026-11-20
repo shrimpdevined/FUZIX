@@ -9,6 +9,21 @@
  * core0 is alive means the USB core is wedged.  Read via /dev/sys minor 6. */
 #define PICOIOC_DIAG 0x0002
 
+/* Fatal-exception crash record stored in QSPI (MASTER_PLAN S5/S8).  Read it
+ * from /dev/sys minor 6 with PICOIOC_CRASHLOG and write the text to a file
+ * (see rc / picoctl crashlog) so it survives USB re-enumeration. */
+#define PICOIOC_CRASHLOG 0x0003
+#define PICO_CRASHLOG_MAGIC 0x43525348UL	/* "CRSH" */
+
+struct pico_crashlog {
+    uint32_t magic;
+    uint32_t len;
+    uint32_t cause;
+    uint32_t r[17];       /* r0-r12, sp, lr, pc, psr */
+    uint32_t crc;
+    unsigned char tail[428];  /* tail of the VT console ring */
+};
+
 struct pico_diag {
     uint32_t usb_tx_dropped;   /* console bytes dropped: USB TX ring full */
     uint32_t usb_rx_dropped;   /* USB input dropped: staging ring full */
